@@ -1,0 +1,13 @@
+{
+    "name": "notiapply-sidecar",
+    "version": "1.0.0",
+    "private": true,
+    "description": "Playwright fill script — spawned by Tauri as a sidecar",
+    "main": "fill.js",
+    "dependencies": {
+        "playwright": "^1.49.0",
+        "pg": "^8.13.0",
+        "dotenv": "^16.4.0",
+        "minimist": "^1.2.8"
+    }
+}

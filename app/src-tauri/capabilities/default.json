@@ -1,0 +1,35 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Notiapply default capabilities — shell spawn for Node sidecar",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        {
+          "name": "node",
+          "sidecar": true,
+          "args": [
+            "sidecar/fill.js",
+            "--session-id",
+            {
+              "validator": "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+            },
+            "--chromium-path",
+            {
+              "validator": ".*"
+            },
+            "--simplify-path",
+            {
+              "validator": ".*"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

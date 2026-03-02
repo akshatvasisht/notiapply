@@ -1,71 +1,57 @@
-# Testing Guidelines
+# Testing Notiapply
 
-## Strategy
-This project uses [Framework Name] for automated testing. We prioritize [Unit/Integration/E2E] tests for [Critical Component].
+Notiapply employs a comprehensive testing strategy spanning unit tests, component boundary testing, and Playwright automation checks. As an autonomous desktop application handling sensitive browser execution, deterministic testing is strictly enforced.
 
-### Test Types
-* **Unit Tests:** Test individual functions or modules in isolation. They are fast, deterministic, and verify core logic.
-* **Integration Tests:** Verify that multiple components (e.g., database, external services) work together correctly.
-* **End-to-End (E2E) Tests:** Validate the entire system pipeline from the user's perspective, typically simulating real usage flows.
+---
 
-## Running Tests
+## 1. Test Architecture
 
-### Automated Suite
-Run the full suite:
+The primary testing stack for the `app/` (Tauri + React) domain is **Vitest** paired with **React Testing Library**.
+Vitest provides native ESM and TypeScript support without the latency of transpilation, making it ideal for the Next.js execution environment.
+
+### Tooling
+- **Test Runner**: Vitest
+- **DOM Assertions**: `@testing-library/jest-dom`
+- **Environment**: `jsdom`
+
+---
+
+## 2. Running Tests
+
+All frontend testing is isolated within the `app/` directory.
+
 ```bash
-[command, e.g., pytest or npm test]
+cd app
+npm run test
 ```
-Run with coverage:
-Bash
 
-[command for coverage]
+### Coverage
+To run tests with an coverage report:
+```bash
+npm run test -- --coverage
+```
 
-## Manual Tests
+---
 
-This section covers scenarios that cannot be automated: hardware-dependent behavior, visual verification, network-dependent flows.
+## 3. Test Suites
 
-### [Placeholder: Test Scenario Name]
-* **Purpose:** [What feature or flow is being tested]
-* **Usage:** [Step-by-step instructions to run the test]
-* **What It Tests:** [Specific components or interactions validated]
-* **Expected Output:** [What the user should see or experience on success]
+### Unit Tests (`*.test.ts`)
+Utility functions and decoupled logic must be fully covered.
+- Example: `app/lib/utils.test.ts` thoroughly tests edge cases for `timeAgo` (including negative/future timestamps) and `formatSalary` (null combinations).
 
-### [Placeholder: Another Test Scenario Name]
-* **Purpose:** [What feature or flow is being tested]
-* **Usage:** [Step-by-step instructions to run the test]
-* **What It Tests:** [Specific components or interactions validated]
-* **Expected Output:** [What the user should see or experience on success]
+### Component Tests (`*.test.tsx`)
+React components are tested via behavioral boundaries (how they render and what callbacks they trigger), *not* internal state.
+- Focus on `data-testid` or accessibility labels when selecting elements.
+- Example: `JsonSchemaForm.test.tsx` validates that the correct HTML representations (checkboxes, select dropdowns) map to the injected JSON Schema types, and that the `onChange` event bubbles correctly.
 
-## Writing New Tests
+### Database Abstraction Isolation
+The database query layer (`app/lib/db.ts`) exposes parameterized connection string injection (`initPool`). During tests, **never** allow the system to default to the environment `DATABASE_URL`. If testing DB queries directly, supply a bespoke `postgres://` connection mapped to a disposable test container.
 
-* **Pattern:** Follow the Arrange / Act / Assert pattern.
-  ```[Language]
-  // Arrange
-  const input = setupData();
-  // Act
-  const result = processData(input);
-  // Assert
-  expect(result).toEqual(expectedOutput);
-  ```
-* **Isolation:** Tests must not share mutable state. Each test should set up and tear down its own environment.
-* **Mocking Requirements:** No live hardware or external APIs should be used in automated runs. Depend on mocks or stubs.
-* **Naming Conventions:** Name tests according to formatting standards defined in `STYLE.md`.
+---
 
-## Mocking Standards
-External APIs should be mocked using [Library].
+## 4. Sidecar Automation Testing (Python / Node)
 
-Database connections should use [Strategy, e.g., in-memory SQLite].
+The automated filling engine (`sidecar/fill.js`) and Python scraping fleet operate outside the Tauri test boundary.
 
-## Troubleshooting Tests
-
-### Import Errors
-**Issue:** `[Placeholder: e.g., ImportError: cannot import name 'module']`
-**Fix:** `[Placeholder: e.g., Verify your PYTHONPATH is set correctly and the test environment is activated.]`
-
-### Mocking Failures
-**Issue:** `[Placeholder: e.g., MagicMock object has no attribute 'expected_call']`
-**Fix:** `[Placeholder: e.g., Check the method name on the mocked object matches the actual implementation.]`
-
-### Test Isolation Failures
-**Issue:** `[Placeholder: e.g., Test suite passes individually but fails when run together]`
-**Fix:** `[Placeholder: e.g., Ensure global state is reset in teardown methods and avoid shared fixtures unless explicitly read-only.]`
+- **Scrapers (Python)**: Unit tests for the HTML/JSON parsers reside in `server/tests/`. Scraper integration tests should hit static HTTP mocks (via `responses`), not live production ATS URLs, to prevent IP bans.
+- **Sidecar (Playwright)**: When modifying `fill.js`, utilize Playwright's native headed mode for testing (`chromium.launch({ headless: false })`) against a local HTML form mock before deploying to Tauri's NDJSON IPC.

@@ -1,0 +1,46 @@
+# Environment
+.env
+.db_credentials
+*.log
+
+# Node
+node_modules/
+.next/
+dist/
+out/
+
+# Rust / Tauri
+target/
+app/src-tauri/target/
+Cargo.lock
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Temp
+/tmp/
+*.tmp
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# Build artifacts
+*.deb
+*.AppImage
+*.dmg
+*.exe
+*.msi
+
+# Agent Context
+agentcontext/

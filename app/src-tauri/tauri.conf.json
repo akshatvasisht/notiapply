@@ -1,0 +1,49 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "notiapply",
+  "version": "0.1.0",
+  "identifier": "com.notiapply.app",
+  "build": {
+    "frontendDist": "../out",
+    "devUrl": "http://localhost:3000",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Notiapply",
+        "width": 1280,
+        "minWidth": 960,
+        "height": 800,
+        "minHeight": 640,
+        "decorations": false,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "externalBin": [
+      "binaries/node-x86_64-unknown-linux-gnu",
+      "binaries/node-x86_64-pc-windows-msvc",
+      "binaries/node-aarch64-apple-darwin"
+    ],
+    "resources": [
+      "../sidecar/fill.js",
+      "../sidecar/node_modules"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

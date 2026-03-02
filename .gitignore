@@ -12,6 +12,7 @@ out/
 # Rust / Tauri
 target/
 app/src-tauri/target/
+app/src-tauri/binaries/
 Cargo.lock
 
 # Python

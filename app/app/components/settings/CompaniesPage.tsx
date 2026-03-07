@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { getScrapedCompanies, addScrapedCompany, removeScrapedCompany } from '@/lib/db';
 import type { ScrapedCompany } from '@/lib/types';
+import { MOCK_COMPANIES } from '@/lib/mock-data';
 
 export default function CompaniesPage({ onBack }: { onBack: () => void }) {
     const [companies, setCompanies] = useState<ScrapedCompany[]>([]);
@@ -12,7 +13,10 @@ export default function CompaniesPage({ onBack }: { onBack: () => void }) {
     const [slug, setSlug] = useState('');
 
     useEffect(() => {
-        getScrapedCompanies().then(setCompanies).catch(console.error);
+        getScrapedCompanies().then(setCompanies).catch(() => {
+            console.warn('[DEV] Using mock companies');
+            setCompanies(MOCK_COMPANIES);
+        });
     }, []);
 
     const handleAdd = async () => {
@@ -36,7 +40,7 @@ export default function CompaniesPage({ onBack }: { onBack: () => void }) {
                 background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)',
             }}>
                 <button onClick={onBack} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: 'var(--color-text-secondary)' }}>
-                    ← Back
+                    ‹ Back
                 </button>
                 <span style={{ fontSize: 15, fontWeight: 500 }}>ATS Watchlist</span>
             </div>
@@ -68,7 +72,7 @@ export default function CompaniesPage({ onBack }: { onBack: () => void }) {
                         onClick={handleAdd} disabled={!name || !slug}
                         style={{
                             padding: '8px 16px', borderRadius: 6, fontSize: 12, fontWeight: 500,
-                            background: name && slug ? 'var(--color-google-blue)' : 'var(--color-border)',
+                            background: name && slug ? 'var(--color-primary)' : 'var(--color-border)',
                             color: name && slug ? 'var(--color-text-inverse)' : 'var(--color-text-disabled)',
                             border: 'none', cursor: name && slug ? 'pointer' : 'not-allowed',
                         }}
@@ -110,7 +114,7 @@ export default function CompaniesPage({ onBack }: { onBack: () => void }) {
                                     <td style={{ padding: '10px 12px' }}>
                                         <span style={{
                                             fontSize: 11, fontWeight: 500, padding: '2px 8px', borderRadius: 4,
-                                            background: 'var(--color-green-tint)', color: 'var(--color-google-green)',
+                                            background: 'var(--color-success-container)', color: 'var(--color-success)',
                                         }}>
                                             {c.ats_platform}
                                         </span>
@@ -124,7 +128,8 @@ export default function CompaniesPage({ onBack }: { onBack: () => void }) {
                                     <td style={{ padding: '10px 12px', textAlign: 'right' }}>
                                         <button
                                             onClick={() => handleRemove(c.id)}
-                                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'var(--color-google-red)', padding: '2px 6px' }}
+                                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: 'var(--color-error)', padding: '2px 6px' }}
+                                            aria-label={`Remove ${c.name}`}
                                         >
                                             ×
                                         </button>

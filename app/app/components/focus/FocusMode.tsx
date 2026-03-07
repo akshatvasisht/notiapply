@@ -1,16 +1,19 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
+import { logger } from '@/lib/logger';
 import type { Job, Application } from '@/lib/types';
 import { getApplicationByJobId, updateJobState } from '@/lib/db';
 import { SOURCE_LABELS, SOURCE_COLORS, getCardBorderColor } from '@/lib/types';
+import { timeAgo, formatSalary } from '@/lib/utils';
+import CompanyAvatar from '../common/CompanyAvatar';
 
 interface FocusModeProps {
   job: Job;
   onBack: () => void;
 }
-
-import { timeAgo, formatSalary } from '@/lib/utils';
 
 /** State-specific action buttons for Focus Mode */
 function StateActions({ job, onAction }: { job: Job; onAction: (newState: string) => void }) {
@@ -30,30 +33,30 @@ function StateActions({ job, onAction }: { job: Job; onAction: (newState: string
     case 'review-ready':
       return (
         <div style={{ display: 'flex', gap: 8 }}>
-          <ActionButton label="✓ Mark Submitted" color="var(--color-google-green)" onClick={() => onAction('submitted')} />
-          <ActionButton label="Reject" color="var(--color-google-red)" onClick={() => onAction('rejected')} />
+          <ActionButton label="Mark Submitted" color="var(--color-success)" onClick={() => onAction('submitted')} />
+          <ActionButton label="Reject" color="var(--color-error)" onClick={() => onAction('rejected')} />
         </div>
       );
     case 'review-incomplete':
       return (
         <div style={{ display: 'flex', gap: 8 }}>
-          <ActionButton label="✓ Mark Submitted" color="var(--color-google-green)" onClick={() => onAction('submitted')} />
-          <ActionButton label="Reject" color="var(--color-google-red)" onClick={() => onAction('rejected')} />
-          <ActionButton label="Re-queue" color="var(--color-google-blue)" onClick={() => onAction('queued')} />
+          <ActionButton label="Mark Submitted" color="var(--color-success)" onClick={() => onAction('submitted')} />
+          <ActionButton label="Reject" color="var(--color-error)" onClick={() => onAction('rejected')} />
+          <ActionButton label="Re-queue" color="var(--color-primary)" onClick={() => onAction('queued')} />
         </div>
       );
     case 'fill-failed':
       return (
         <div style={{ display: 'flex', gap: 8 }}>
-          <ActionButton label="Re-queue" color="var(--color-google-blue)" onClick={() => onAction('queued')} />
+          <ActionButton label="Re-queue" color="var(--color-primary)" onClick={() => onAction('queued')} />
           <ActionButton label="Archive" color="var(--color-text-tertiary)" onClick={() => onAction('filtered-out')} />
         </div>
       );
     case 'submitted':
       return (
         <div style={{ display: 'flex', gap: 8 }}>
-          <ActionButton label="Track" color="var(--color-google-green)" onClick={() => onAction('tracking')} />
-          <ActionButton label="Rejected" color="var(--color-google-red)" onClick={() => onAction('rejected')} />
+          <ActionButton label="Track" color="var(--color-success)" onClick={() => onAction('tracking')} />
+          <ActionButton label="Rejected" color="var(--color-error)" onClick={() => onAction('rejected')} />
         </div>
       );
     default:
@@ -81,10 +84,20 @@ function ActionButton({ label, color, onClick }: { label: string; color: string;
 export default function FocusMode({ job, onBack }: FocusModeProps) {
   const [application, setApplication] = useState<Application | null>(null);
   const [currentJob, setCurrentJob] = useState(job);
+  const [notes, setNotes] = useState('');
+  const [notesExpanded, setNotesExpanded] = useState(false);
 
   useEffect(() => {
-    getApplicationByJobId(job.id).then(setApplication).catch(console.error);
+    getApplicationByJobId(job.id).then(setApplication).catch((err) => {
+      logger.error('Failed to load application', 'FocusMode', err);
+    });
   }, [job.id]);
+
+  // Configure marked options
+  marked.setOptions({
+    breaks: true,
+    gfm: true,
+  });
 
   const handleAction = async (newState: string) => {
     await updateJobState(currentJob.id, newState);
@@ -97,22 +110,48 @@ export default function FocusMode({ job, onBack }: FocusModeProps) {
   const borderColor = getCardBorderColor(currentJob.state);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Header */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 12,
         height: 44, padding: '0 16px',
-        background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)',
+        background: 'var(--color-surface-container)', borderBottom: '1px solid var(--color-border)',
       }}>
-        <button
-          onClick={onBack}
-          style={{
-            background: 'none', border: 'none', cursor: 'pointer',
-            fontSize: 16, color: 'var(--color-text-secondary)', padding: '4px 8px',
-          }}
-        >
-          ← Back
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button
+            onClick={onBack}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              fontSize: 16, color: 'var(--color-text-secondary)', padding: '4px 8px',
+            }}
+          >
+            ‹ Back
+          </button>
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(currentJob.url);
+            }}
+            style={{
+              background: 'none',
+              border: '1px solid var(--color-outline-variant)',
+              borderRadius: 6,
+              cursor: 'pointer',
+              fontSize: 12,
+              color: 'var(--color-on-surface-variant)',
+              padding: '4px 10px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+            title="Copy job URL"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+            Copy URL
+          </button>
+        </div>
         <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-primary)' }}>
           {currentJob.company} — {currentJob.title}
         </span>
@@ -132,13 +171,18 @@ export default function FocusMode({ job, onBack }: FocusModeProps) {
             borderLeft: `4px solid ${borderColor}`,
             paddingLeft: 16, marginBottom: 24,
           }}>
-            <h2 style={{ fontSize: 18, fontWeight: 600, margin: 0, color: 'var(--color-text-primary)' }}>
-              {currentJob.title}
-            </h2>
-            <div style={{ fontSize: 14, color: 'var(--color-text-secondary)', marginTop: 4 }}>
-              {currentJob.company}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+              <CompanyAvatar name={currentJob.company} logoUrl={currentJob.company_logo_url} size={48} />
+              <div>
+                <h2 style={{ fontSize: 18, fontWeight: 600, margin: 0, color: 'var(--color-text-primary)' }}>
+                  {currentJob.title}
+                </h2>
+                <div style={{ fontSize: 14, color: 'var(--color-text-secondary)', marginTop: 4 }}>
+                  {currentJob.company}
+                </div>
+              </div>
             </div>
-            <div style={{ fontSize: 13, color: 'var(--color-text-tertiary)', marginTop: 4 }}>
+            <div style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>
               {currentJob.location}{salary && ` · ${salary}`}
             </div>
           </div>
@@ -147,9 +191,20 @@ export default function FocusMode({ job, onBack }: FocusModeProps) {
             <StateActions job={currentJob} onAction={handleAction} />
           </div>
 
-          <div style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--color-text-secondary)', whiteSpace: 'pre-wrap' }}>
-            {currentJob.description_raw}
-          </div>
+          <div
+            style={{
+              fontSize: 13,
+              lineHeight: 1.6,
+              color: 'var(--color-text-secondary)',
+            }}
+            className="job-description-markdown"
+            dangerouslySetInnerHTML={{
+              __html: DOMPurify.sanitize(marked.parse(currentJob.description_raw) as string, {
+                ALLOWED_TAGS: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'br', 'strong', 'em', 'u', 'ul', 'ol', 'li', 'a', 'code', 'pre', 'blockquote'],
+                ALLOWED_ATTR: ['href', 'target', 'rel'],
+              })
+            }}
+          />
         </div>
 
         {/* Right — Application details & timeline */}
@@ -179,9 +234,9 @@ export default function FocusMode({ job, onBack }: FocusModeProps) {
               {application.incomplete_fields && application.incomplete_fields.length > 0 && (
                 <div style={{
                   padding: '8px 12px', borderRadius: 6, marginBottom: 12,
-                  background: 'var(--color-yellow-tint)', border: '1px solid var(--color-google-yellow)',
+                  background: 'var(--color-warning-container)', border: '1px solid var(--color-warning)',
                 }}>
-                  <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-google-yellow)', marginBottom: 4 }}>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-warning)', marginBottom: 4 }}>
                     Incomplete fields
                   </div>
                   {application.incomplete_fields.map((field, i) => (
@@ -195,9 +250,9 @@ export default function FocusMode({ job, onBack }: FocusModeProps) {
               {application.fill_notes && (
                 <div style={{
                   padding: '8px 12px', borderRadius: 6, marginBottom: 12,
-                  background: 'var(--color-red-tint)', border: '1px solid var(--color-google-red)',
+                  background: 'var(--color-error-container)', border: '1px solid var(--color-error)',
                 }}>
-                  <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-google-red)', marginBottom: 4 }}>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-error)', marginBottom: 4 }}>
                     Error
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', whiteSpace: 'pre-wrap' }}>
@@ -226,17 +281,66 @@ export default function FocusMode({ job, onBack }: FocusModeProps) {
           {application?.fill_completed_at && <TimelineEvent label="Fill completed" date={application.fill_completed_at} />}
           {application?.submitted_at && <TimelineEvent label="Submitted" date={application.submitted_at} />}
 
+          <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)', marginTop: 24, marginBottom: 12 }}>
+            Notes
+          </h3>
+          <button
+            onClick={() => setNotesExpanded(!notesExpanded)}
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              borderRadius: 6,
+              border: '1px solid var(--color-outline-variant)',
+              background: 'var(--color-surface-raised)',
+              color: 'var(--color-on-surface)',
+              fontSize: 12,
+              cursor: 'pointer',
+              textAlign: 'left',
+              marginBottom: notesExpanded ? 8 : 0,
+            }}
+          >
+            {notesExpanded ? '▼ Hide notes' : '▶ Add notes'}
+          </button>
+          {notesExpanded && (
+            <textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              placeholder="Add notes about this application..."
+              style={{
+                width: '100%',
+                minHeight: 100,
+                padding: '8px 12px',
+                borderRadius: 6,
+                border: '1px solid var(--color-outline-variant)',
+                background: 'var(--color-surface)',
+                color: 'var(--color-on-surface)',
+                fontSize: 12,
+                fontFamily: 'inherit',
+                resize: 'vertical',
+                outline: 'none',
+              }}
+            />
+          )}
+
           <div style={{ marginTop: 24 }}>
             <a
               href={currentJob.url}
               target="_blank"
               rel="noopener noreferrer"
               style={{
-                fontSize: 12, color: 'var(--color-google-blue)',
+                fontSize: 12, color: 'var(--color-primary)',
                 textDecoration: 'none',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
               }}
             >
-              Open original listing ↗
+              Open original listing
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginBottom: -1 }}>
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                <polyline points="15 3 21 3 21 9" />
+                <line x1="10" y1="14" x2="21" y2="3" />
+              </svg>
             </a>
           </div>
         </div>

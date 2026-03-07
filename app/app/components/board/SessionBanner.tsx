@@ -19,12 +19,12 @@ export default function SessionBanner({ running, result, onDismiss }: SessionBan
             animation: 'fadeUp 0.2s ease-out',
         }}>
             {running ? (
-                <span style={{ color: 'var(--color-google-yellow)', fontWeight: 500 }}>
-                    ● Running…
+                <span style={{ color: 'var(--color-warning)', fontWeight: 500 }}>
+                    ◌ Running...
                 </span>
             ) : result ? (
                 <>
-                    <span style={{ color: 'var(--color-google-green)', fontWeight: 500 }}>
+                    <span style={{ color: 'var(--color-success)', fontWeight: 500 }}>
                         ✓ Session complete
                     </span>
                     <span>{result.filled} ready · {result.incomplete} attention · {result.failed} failed</span>
@@ -32,10 +32,11 @@ export default function SessionBanner({ running, result, onDismiss }: SessionBan
                         onClick={onDismiss}
                         style={{
                             background: 'none', border: 'none', cursor: 'pointer',
-                            color: 'var(--color-text-tertiary)', fontSize: 14,
+                            color: 'var(--color-text-tertiary)', fontSize: 16,
                         }}
+                        aria-label="Dismiss"
                     >
-                        ✕
+                        ×
                     </button>
                 </>
             ) : null}

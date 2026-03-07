@@ -33,6 +33,27 @@ export default function SetupWizard({ onComplete }: WizardProps) {
         onComplete();
     };
 
+    // DEV ONLY: Skip wizard with mock data
+    const handleDevSkip = async () => {
+        const mockConfig: UserConfig = {
+            llm_endpoint: 'https://api.example.com/v1',
+            llm_api_key: 'mock-api-key',
+            llm_model: 'gemini-1.5-flash',
+            ntfy_topic: 'notiapply-dev',
+            search_terms: ['software engineer', 'backend engineer'],
+            locations: ['Remote', 'San Francisco'],
+            github_repos: ['SimplifyJobs/New-Grad-Positions'],
+            filter: { exclude_keywords: ['senior'], seniority: ['entry'], new_grad_only: false },
+            setup_complete: true,
+        };
+        try {
+            await updateUserConfig(mockConfig);
+        } catch {
+            console.warn('[DEV] Skipping wizard - DB not available');
+        }
+        onComplete();
+    };
+
     const canAdvance = () => {
         if (step === 0) return resumeTeX.length > 0;
         if (step === 1) return config.llm_endpoint && config.llm_api_key && config.ntfy_topic;
@@ -46,6 +67,23 @@ export default function SetupWizard({ onComplete }: WizardProps) {
             justifyContent: 'center', height: '100vh', padding: 40,
             background: 'var(--color-surface)',
         }}>
+            {/* DEV ONLY: Skip button */}
+            {process.env.NODE_ENV === 'development' && (
+                <button
+                    onClick={handleDevSkip}
+                    style={{
+                        position: 'absolute', top: 20, right: 20,
+                        padding: '6px 12px', borderRadius: 6, fontSize: 11,
+                        background: 'var(--color-warning-container)', color: 'var(--color-warning)',
+                        border: '1px solid var(--color-warning)', cursor: 'pointer',
+                        fontWeight: 500, letterSpacing: '0.5px',
+                    }}
+                    title="DEV ONLY: Skip wizard with mock data"
+                >
+                    [DEV] Skip Setup (Dev)
+                </button>
+            )}
+
             {/* Progress dots */}
             <div style={{ display: 'flex', gap: 8, marginBottom: 32 }}>
                 {STEPS.map((s, i) => (
@@ -53,7 +91,7 @@ export default function SetupWizard({ onComplete }: WizardProps) {
                         key={s}
                         style={{
                             width: 8, height: 8, borderRadius: '50%',
-                            background: i <= step ? 'var(--color-google-blue)' : 'var(--color-border)',
+                            background: i <= step ? 'var(--color-primary)' : 'var(--color-border)',
                             transition: 'background 0.2s',
                         }}
                     />
@@ -114,7 +152,7 @@ function navBtn(variant: 'primary' | 'outline' | 'disabled'): React.CSSPropertie
         padding: '8px 24px', borderRadius: 6, fontSize: 13, fontWeight: 500,
         cursor: 'pointer', border: 'none', transition: 'all 0.15s',
     };
-    if (variant === 'primary') return { ...base, background: 'var(--color-google-blue)', color: 'var(--color-text-inverse)' };
+    if (variant === 'primary') return { ...base, background: 'var(--color-primary)', color: 'var(--color-text-inverse)' };
     if (variant === 'outline') return { ...base, background: 'transparent', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)' };
     return { ...base, background: 'var(--color-border)', color: 'var(--color-text-disabled)', cursor: 'not-allowed' };
 }
@@ -164,11 +202,11 @@ function FileDropField({ label, accept, hasFile, onChange }: {
         <label style={{
             display: 'flex', alignItems: 'center', gap: 12,
             padding: '16px 20px', borderRadius: 8,
-            border: `2px dashed ${hasFile ? 'var(--color-google-green)' : 'var(--color-border)'}`,
-            background: hasFile ? 'var(--color-green-tint)' : 'var(--color-surface-raised)',
+            border: `2px dashed ${hasFile ? 'var(--color-success)' : 'var(--color-border)'}`,
+            background: hasFile ? 'var(--color-success-container)' : 'var(--color-surface-raised)',
             cursor: 'pointer', transition: 'all 0.2s',
         }}>
-            <span style={{ fontSize: 20 }}>{hasFile ? '✓' : '📄'}</span>
+            <span style={{ fontSize: 20 }}>{hasFile ? '[Yes]' : 'File'}</span>
             <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>{label}</span>
             <input type="file" accept={accept} onChange={onChange} style={{ display: 'none' }} />
         </label>
@@ -253,15 +291,15 @@ function ConfirmStep({ config, hasResume, hasCover }: {
     config: UserConfig; hasResume: boolean; hasCover: boolean;
 }) {
     const rows = [
-        ['Resume', hasResume ? '✓ Uploaded' : '✗ Missing'],
-        ['Cover Letter', hasCover ? '✓ Uploaded' : '— Skipped'],
+        ['Resume', hasResume ? 'Uploaded' : 'Missing'],
+        ['Cover Letter', hasCover ? 'Uploaded' : '— Skipped'],
         ['LLM Endpoint', config.llm_endpoint ?? '—'],
         ['LLM Model', config.llm_model ?? 'gemini-1.5-flash'],
         ['ntfy Topic', config.ntfy_topic ?? '—'],
         ['Search Terms', config.search_terms?.join(', ') ?? '—'],
         ['Locations', config.locations?.join(', ') ?? '—'],
         ['GitHub Repos', config.github_repos?.join(', ') ?? '—'],
-        ['Proxy', config.decodo_proxy ? '✓ Configured' : '— None'],
+        ['Proxy', config.decodo_proxy ? 'Configured' : '— None'],
     ];
 
     return (
@@ -318,8 +356,8 @@ function ValidatedField({ label, value, onChange, placeholder, status, onTest }:
     placeholder?: string; status?: 'pending' | 'pass' | 'fail';
     onTest: () => void;
 }) {
-    const indicator = status === 'pass' ? '✓' : status === 'fail' ? '✗' : status === 'pending' ? '…' : '';
-    const indicatorColor = status === 'pass' ? 'var(--color-google-green)' : status === 'fail' ? 'var(--color-google-red)' : 'var(--color-text-tertiary)';
+    const indicator = status === 'pass' ? '[Yes]' : status === 'fail' ? '[No]' : status === 'pending' ? '...' : '';
+    const indicatorColor = status === 'pass' ? 'var(--color-success)' : status === 'fail' ? 'var(--color-error)' : 'var(--color-text-tertiary)';
 
     return (
         <div>
@@ -381,14 +419,14 @@ function TagField({ label, tags, onChange, placeholder }: {
                     <span key={tag} style={{
                         display: 'flex', alignItems: 'center', gap: 4,
                         padding: '2px 8px', borderRadius: 4, fontSize: 12,
-                        background: 'var(--color-blue-tint)', color: 'var(--color-google-blue)',
+                        background: 'var(--color-primary-container)', color: 'var(--color-primary)',
                     }}>
                         {tag}
                         <button
                             onClick={() => onChange(tags.filter(t => t !== tag))}
                             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 14, padding: 0, lineHeight: 1 }}
                         >
-                            ×
+                            X
                         </button>
                     </span>
                 ))}

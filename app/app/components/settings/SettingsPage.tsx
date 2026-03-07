@@ -15,7 +15,10 @@ import {
     updateModuleOrder, addCustomModule, deleteModule, updateModuleConfig,
 } from '@/lib/db';
 import type { UserConfig, PipelineModule } from '@/lib/types';
+import { MOCK_CONFIG, MOCK_MODULES } from '@/lib/mock-data';
 import JsonSchemaForm from './JsonSchemaForm';
+import SourceLegend from './SourceLegend';
+import StatusLegend from './StatusLegend';
 
 export default function SettingsPage({ onBack }: { onBack: () => void }) {
     const [config, setConfig] = useState<UserConfig>({});
@@ -23,17 +26,35 @@ export default function SettingsPage({ onBack }: { onBack: () => void }) {
     const [showAddModule, setShowAddModule] = useState(false);
     const [expandedModule, setExpandedModule] = useState<number | null>(null);
     const [dirty, setDirty] = useState(false);
+    const [lastSaved, setLastSaved] = useState<number | null>(null);
+    const [now, setNow] = useState<number | null>(null);
+
+    useEffect(() => {
+        const timeout = setTimeout(() => setNow(Date.now()), 0);
+        const interval = setInterval(() => setNow(Date.now()), 60000); // Update "now" every minute
+        return () => {
+            clearTimeout(timeout);
+            clearInterval(interval);
+        };
+    }, []);
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
     useEffect(() => {
-        getUserConfig().then(setConfig).catch(console.error);
-        getPipelineModules().then(setModules).catch(console.error);
+        getUserConfig().then(setConfig).catch(() => {
+            console.warn('[DEV] Using mock config');
+            setConfig(MOCK_CONFIG);
+        });
+        getPipelineModules().then(setModules).catch(() => {
+            console.warn('[DEV] Using mock modules');
+            setModules(MOCK_MODULES);
+        });
     }, []);
 
     const save = async () => {
         await updateUserConfig(config);
         setDirty(false);
+        setLastSaved(Date.now());
     };
 
     const patch = (p: Partial<UserConfig>) => { setConfig(prev => ({ ...prev, ...p })); setDirty(true); };
@@ -71,11 +92,18 @@ export default function SettingsPage({ onBack }: { onBack: () => void }) {
                 height: 44, padding: '0 16px',
                 background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)',
             }}>
-                <button onClick={onBack} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: 'var(--color-text-secondary)' }}>← Back</button>
-                <span style={{ fontSize: 15, fontWeight: 500 }}>Settings</span>
+                <button onClick={onBack} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: 'var(--color-text-secondary)' }}>‹ Back</button>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <span style={{ fontSize: 15, fontWeight: 500 }}>Settings</span>
+                    {lastSaved && now && (
+                        <span style={{ fontSize: 11, color: 'var(--color-text-disabled)' }}>
+                            Last saved {Math.floor((now - lastSaved) / 1000 / 60)} min ago
+                        </span>
+                    )}
+                </div>
                 <button onClick={save} disabled={!dirty} style={{
                     padding: '5px 14px', borderRadius: 6, fontSize: 12, fontWeight: 500, border: 'none',
-                    background: dirty ? 'var(--color-google-blue)' : 'var(--color-border)',
+                    background: dirty ? 'var(--color-primary)' : 'var(--color-border)',
                     color: dirty ? 'var(--color-text-inverse)' : 'var(--color-text-disabled)',
                     cursor: dirty ? 'pointer' : 'not-allowed',
                 }}>Save</button>
@@ -104,8 +132,8 @@ export default function SettingsPage({ onBack }: { onBack: () => void }) {
                     </DndContext>
                     <button onClick={() => setShowAddModule(true)} style={{
                         marginTop: 12, padding: '6px 14px', borderRadius: 6, fontSize: 12,
-                        background: 'transparent', color: 'var(--color-google-blue)',
-                        border: '1px dashed var(--color-google-blue)', cursor: 'pointer',
+                        background: 'transparent', color: 'var(--color-primary)',
+                        border: '1px dashed var(--color-primary)', cursor: 'pointer',
                     }}>
                         + Add Custom Module
                     </button>
@@ -113,7 +141,30 @@ export default function SettingsPage({ onBack }: { onBack: () => void }) {
 
                 {/* LLM */}
                 <Section title="LLM">
-                    <Field label="Endpoint" value={config.llm_endpoint ?? ''} onChange={v => patch({ llm_endpoint: v })} />
+                    <FieldWithTest
+                        label="Endpoint"
+                        value={config.llm_endpoint ?? ''}
+                        onChange={v => patch({ llm_endpoint: v })}
+                        onTest={async () => {
+                            if (!config.llm_endpoint) return false;
+                            try {
+                                const response = await fetch(config.llm_endpoint, {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'Authorization': `Bearer ${config.llm_api_key || ''}`,
+                                    },
+                                    body: JSON.stringify({
+                                        model: config.llm_model || 'gemini-1.5-flash',
+                                        messages: [{ role: 'user', content: 'test' }],
+                                    }),
+                                });
+                                return response.ok;
+                            } catch {
+                                return false;
+                            }
+                        }}
+                    />
                     <Field label="API Key" value={config.llm_api_key ?? ''} onChange={v => patch({ llm_api_key: v })} type="password" />
                     <Field label="Model" value={config.llm_model ?? 'gemini-1.5-flash'} onChange={v => patch({ llm_model: v })} />
                 </Section>
@@ -137,6 +188,12 @@ export default function SettingsPage({ onBack }: { onBack: () => void }) {
                     <Field label="GitHub Token" value={config.github_token ?? ''} onChange={v => patch({ github_token: v })} type="password" />
                     <Field label="Decodo Proxy" value={config.decodo_proxy ?? ''} onChange={v => patch({ decodo_proxy: v })} placeholder="user:pass@gate.decodo.com:7000" />
                 </Section>
+
+                {/* Legends */}
+                <div style={{ marginTop: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
+                    <SourceLegend />
+                    <StatusLegend />
+                </div>
             </div>
 
             {showAddModule && (
@@ -182,14 +239,15 @@ function SortableModuleRow({ module: mod, expanded, onToggle, onExpand, onConfig
                 {/* Drag handle */}
                 <div
                     {...listeners} {...attributes}
-                    style={{ cursor: 'grab', color: 'var(--color-text-disabled)', fontSize: 14, padding: '0 2px', userSelect: 'none' }}
+                    style={{ cursor: 'grab', color: 'var(--color-text-disabled)', fontSize: 16, padding: '0 2px', userSelect: 'none' }}
+                    aria-label="Drag to reorder"
                 >
-                    ⠿
+                    ⋮⋮
                 </div>
 
                 <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: 8, flex: 1 }}>
                     <input type="checkbox" checked={mod.enabled} onChange={e => onToggle(e.target.checked)}
-                        style={{ accentColor: 'var(--color-google-blue)' }} />
+                        style={{ accentColor: 'var(--color-primary)' }} />
                     <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-primary)' }}>{mod.name}</span>
                 </label>
 
@@ -203,15 +261,17 @@ function SortableModuleRow({ module: mod, expanded, onToggle, onExpand, onConfig
 
                 {mod.config_schema && (
                     <button onClick={onExpand} style={{
-                        background: 'none', border: 'none', cursor: 'pointer', fontSize: 12,
-                        color: expanded ? 'var(--color-google-blue)' : 'var(--color-text-tertiary)', padding: '0 4px',
-                    }}>
-                        {expanded ? '▴ Config' : '▾ Config'}
+                        background: 'none', border: 'none', cursor: 'pointer', fontSize: 11,
+                        color: expanded ? 'var(--color-primary)' : 'var(--color-text-tertiary)', padding: '0 4px',
+                    }}
+                        aria-label={expanded ? 'Collapse config' : 'Expand config'}
+                    >
+                        {expanded ? 'v Config' : '> Config'}
                     </button>
                 )}
 
                 {!mod.is_builtin && (
-                    <button onClick={onDelete} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'var(--color-google-red)', padding: '0 4px' }}>×</button>
+                    <button onClick={onDelete} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: 'var(--color-error)', padding: '0 4px' }} aria-label="Delete module">×</button>
                 )}
             </div>
 
@@ -236,7 +296,7 @@ function SortableModuleRow({ module: mod, expanded, onToggle, onExpand, onConfig
                         onClick={() => onConfigSave(localConfig)}
                         style={{
                             marginTop: 12, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 500,
-                            background: 'var(--color-google-blue)', color: 'var(--color-text-inverse)', border: 'none', cursor: 'pointer',
+                            background: 'var(--color-primary)', color: 'var(--color-text-inverse)', border: 'none', cursor: 'pointer',
                         }}
                     >
                         Save Config
@@ -272,6 +332,71 @@ function Field({ label, value, onChange, type = 'text', placeholder }: {
     );
 }
 
+function FieldWithTest({ label, value, onChange, type = 'text', placeholder, onTest }: {
+    label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string; onTest: () => Promise<boolean>;
+}) {
+    const [testing, setTesting] = useState(false);
+    const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
+
+    const handleTest = async () => {
+        setTesting(true);
+        setTestResult(null);
+        const result = await onTest();
+        setTestResult(result ? 'success' : 'error');
+        setTesting(false);
+        setTimeout(() => setTestResult(null), 3000);
+    };
+
+    return (
+        <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-tertiary)', display: 'block', marginBottom: 4 }}>{label}</label>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                    value={value}
+                    onChange={e => onChange(e.target.value)}
+                    type={type}
+                    placeholder={placeholder}
+                    style={{
+                        flex: 1,
+                        padding: '8px 12px',
+                        fontSize: 13,
+                        borderRadius: 6,
+                        border: `1px solid ${testResult === 'error' ? 'var(--color-error)' : testResult === 'success' ? 'var(--color-success)' : 'var(--color-border)'}`,
+                        background: 'var(--color-surface)',
+                        color: 'var(--color-text-primary)',
+                        outline: 'none',
+                    }}
+                />
+                <button
+                    onClick={handleTest}
+                    disabled={testing || !value}
+                    style={{
+                        padding: '8px 14px',
+                        fontSize: 12,
+                        borderRadius: 6,
+                        border: 'none',
+                        background: testing ? 'var(--color-border)' : 'var(--color-primary)',
+                        color: testing ? 'var(--color-text-disabled)' : 'var(--color-text-inverse)',
+                        cursor: testing || !value ? 'not-allowed' : 'pointer',
+                        fontWeight: 500,
+                        minWidth: 60,
+                    }}
+                >
+                    {testing ? '...' : 'Test'}
+                </button>
+                {testResult && (
+                    <span style={{
+                        fontSize: 16,
+                        color: testResult === 'success' ? 'var(--color-success)' : 'var(--color-error)',
+                    }}>
+                        {testResult === 'success' ? '✓' : '✗'}
+                    </span>
+                )}
+            </div>
+        </div>
+    );
+}
+
 function TagFieldInline({ label, tags, onChange }: { label: string; tags: string[]; onChange: (t: string[]) => void }) {
     const [input, setInput] = useState('');
     const addTag = () => { const v = input.trim(); if (v && !tags.includes(v)) onChange([...tags, v]); setInput(''); };
@@ -280,9 +405,9 @@ function TagFieldInline({ label, tags, onChange }: { label: string; tags: string
             <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-tertiary)', display: 'block', marginBottom: 4 }}>{label}</label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'var(--color-surface)', minHeight: 36 }}>
                 {tags.map(t => (
-                    <span key={t} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 4, fontSize: 12, background: 'var(--color-blue-tint)', color: 'var(--color-google-blue)' }}>
+                    <span key={t} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 4, fontSize: 12, background: 'var(--color-primary-container)', color: 'var(--color-primary)' }}>
                         {t}
-                        <button onClick={() => onChange(tags.filter(x => x !== t))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 14, padding: 0, lineHeight: 1 }}>×</button>
+                        <button onClick={() => onChange(tags.filter(x => x !== t))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 16, padding: 0, lineHeight: 1 }} aria-label={`Remove ${t}`}>×</button>
                     </span>
                 ))}
                 <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addTag(); } }} onBlur={addTag}
@@ -318,7 +443,7 @@ function AddModuleModal({ onClose, onAdd }: {
                 <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
                     <button onClick={onClose} style={{ padding: '6px 14px', borderRadius: 6, fontSize: 12, background: 'transparent', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)', cursor: 'pointer' }}>Cancel</button>
                     <button onClick={() => onAdd({ key: name.toLowerCase().replace(/ /g, '-'), name, description: desc, phase, n8n_workflow_id: workflowId })} disabled={!name || !workflowId}
-                        style={{ padding: '6px 14px', borderRadius: 6, fontSize: 12, background: 'var(--color-google-blue)', color: 'var(--color-text-inverse)', border: 'none', cursor: 'pointer' }}>Add</button>
+                        style={{ padding: '6px 14px', borderRadius: 6, fontSize: 12, background: 'var(--color-primary)', color: 'var(--color-text-inverse)', border: 'none', cursor: 'pointer' }}>Add</button>
                 </div>
             </div>
         </div>

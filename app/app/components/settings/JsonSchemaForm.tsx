@@ -98,7 +98,7 @@ function FieldRenderer({ fieldKey, prop, value, onChange, required }: {
                                         const next = e.target.checked ? [...arr, opt] : arr.filter(x => x !== opt);
                                         onChange(next);
                                     }}
-                                    style={{ accentColor: 'var(--color-google-blue)' }}
+                                    style={{ accentColor: 'var(--color-primary)' }}
                                 />
                                 {opt}
                             </label>
@@ -124,11 +124,11 @@ function FieldRenderer({ fieldKey, prop, value, onChange, required }: {
                     type="checkbox"
                     checked={Boolean(current)}
                     onChange={e => onChange(e.target.checked)}
-                    style={{ accentColor: 'var(--color-google-blue)', width: 14, height: 14 }}
+                    style={{ accentColor: 'var(--color-primary)', width: 14, height: 14 }}
                 />
                 <span style={{ fontSize: 13, color: 'var(--color-text-primary)' }}>
                     {label}
-                    {required && <span style={{ color: 'var(--color-google-red)', marginLeft: 2 }}>*</span>}
+                    {required && <span style={{ color: 'var(--color-error)', marginLeft: 2 }}>*</span>}
                 </span>
                 {prop.description && (
                     <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{prop.description}</span>
@@ -146,7 +146,7 @@ function FieldRenderer({ fieldKey, prop, value, onChange, required }: {
                     <input
                         type="range" min={prop.minimum} max={prop.maximum}
                         value={Number(num)} onChange={e => onChange(Number(e.target.value))}
-                        style={{ width: '100%', accentColor: 'var(--color-google-blue)' }}
+                        style={{ width: '100%', accentColor: 'var(--color-primary)' }}
                     />
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--color-text-disabled)' }}>
                         <span>{prop.minimum}</span><span>{prop.maximum}</span>
@@ -176,7 +176,7 @@ function Field({ label, description, required, children }: {
         <div>
             <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-tertiary)', display: 'block', marginBottom: 4 }}>
                 {label}
-                {required && <span style={{ color: 'var(--color-google-red)', marginLeft: 2 }}>*</span>}
+                {required && <span style={{ color: 'var(--color-error)', marginLeft: 2 }}>*</span>}
                 {description && <span style={{ fontWeight: 400, marginLeft: 6, color: 'var(--color-text-disabled)' }}>{description}</span>}
             </label>
             {children}
@@ -194,12 +194,12 @@ function TagArrayInput({ values, onChange }: { values: string[]; onChange: (v: u
             {values.map(v => (
                 <span key={v} style={{
                     display: 'flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 4, fontSize: 12,
-                    background: 'var(--color-blue-tint)', color: 'var(--color-google-blue)',
+                    background: 'var(--color-primary-container)', color: 'var(--color-primary)',
                 }}>
                     {v}
                     <button onClick={() => onChange(values.filter(x => x !== v))}
                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 14, padding: 0, lineHeight: 1 }}>
-                        ×
+                        X
                     </button>
                 </span>
             ))}
@@ -213,7 +213,7 @@ function TagArrayInput({ values, onChange }: { values: string[]; onChange: (v: u
                         e.preventDefault();
                     }
                 }}
-                placeholder={values.length === 0 ? 'Type and press Enter…' : ''}
+                placeholder={values.length === 0 ? 'Type and press Enter...' : ''}
                 style={{ flex: 1, minWidth: 80, border: 'none', outline: 'none', fontSize: 13, background: 'transparent', color: 'var(--color-text-primary)' }}
             />
         </div>

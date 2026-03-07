@@ -6,10 +6,11 @@ import JobCard from './JobCard';
 interface ColumnProps {
     label: string;
     jobs: Job[];
-    onCardClick: (job: Job) => void;
+    selectedIds: Set<number>;
+    onCardClick: (job: Job, e: React.MouseEvent) => void;
 }
 
-export default function Column({ label, jobs, onCardClick }: ColumnProps) {
+export default function Column({ label, jobs, selectedIds, onCardClick }: ColumnProps) {
     return (
         <div style={{
             flex: 1, display: 'flex', flexDirection: 'column', minWidth: 200,
@@ -47,7 +48,12 @@ export default function Column({ label, jobs, onCardClick }: ColumnProps) {
                     </div>
                 ) : (
                     jobs.map(job => (
-                        <JobCard key={job.id} job={job} onClick={() => onCardClick(job)} />
+                        <JobCard
+                            key={job.id}
+                            job={job}
+                            selected={selectedIds.has(job.id)}
+                            onClick={(e) => onCardClick(job, e)}
+                        />
                     ))
                 )}
             </div>

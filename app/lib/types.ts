@@ -28,6 +28,7 @@ export interface Job {
     discovered_at: string;
     docs_fail_reason: string | null;
     state: JobState;
+    company_logo_url: string | null;
 }
 
 export interface Application {
@@ -126,6 +127,24 @@ export interface SidecarEvent {
     failed?: number;
 }
 
+export interface ATSFailure {
+    ats_platform: string;
+    fill_failed_count: number;
+    review_incomplete_count: number;
+    last_updated: string;
+}
+
+export interface AutomationStats {
+    rate: number;
+    automated: number;
+    total: number;
+}
+
+export interface SourceCoverage {
+    active: number;
+    total: number;
+}
+
 /** Board column definitions */
 export type BoardColumn = 'incoming' | 'ready' | 'attention' | 'submitted' | 'archive';
 
@@ -145,17 +164,28 @@ export const COLUMN_LABELS: Record<BoardColumn, string> = {
     archive: 'Archive',
 };
 
-/** Source tag colour mapping */
+/** Source tag colour mapping
+ *
+ * Color logic:
+ * - Blue (primary): Job board aggregators (JobSpy scrapers)
+ * - Green (success): Direct company ATS (Greenhouse, Lever, Ashby)
+ * - Yellow (warning): Curated lists (GitHub repos)
+ * - Purple (secondary): Startup platforms (Wellfound)
+ */
 export const SOURCE_COLORS: Record<string, { text: string; bg: string }> = {
-    'jobspy-linkedin': { text: 'var(--color-google-blue)', bg: 'var(--color-blue-tint)' },
-    'jobspy-indeed': { text: 'var(--color-google-blue)', bg: 'var(--color-blue-tint)' },
-    'jobspy-glassdoor': { text: 'var(--color-google-green)', bg: 'var(--color-green-tint)' },
-    'jobspy-ziprecruiter': { text: 'var(--color-google-blue)', bg: 'var(--color-blue-tint)' },
-    'ats-greenhouse': { text: 'var(--color-google-green)', bg: 'var(--color-green-tint)' },
-    'ats-lever': { text: 'var(--color-google-green)', bg: 'var(--color-green-tint)' },
-    'ats-ashby': { text: 'var(--color-google-green)', bg: 'var(--color-green-tint)' },
-    'github-simplify': { text: 'var(--color-google-yellow)', bg: 'var(--color-yellow-tint)' },
-    'wellfound': { text: 'var(--color-google-red)', bg: 'var(--color-red-tint)' },
+    // Job board aggregators (Blue)
+    'jobspy-linkedin': { text: 'var(--color-primary)', bg: 'var(--color-primary-container)' },
+    'jobspy-indeed': { text: 'var(--color-primary)', bg: 'var(--color-primary-container)' },
+    'jobspy-glassdoor': { text: 'var(--color-primary)', bg: 'var(--color-primary-container)' },
+    'jobspy-ziprecruiter': { text: 'var(--color-primary)', bg: 'var(--color-primary-container)' },
+    // Direct company ATS (Green)
+    'ats-greenhouse': { text: 'var(--color-success)', bg: 'var(--color-success-container)' },
+    'ats-lever': { text: 'var(--color-success)', bg: 'var(--color-success-container)' },
+    'ats-ashby': { text: 'var(--color-success)', bg: 'var(--color-success-container)' },
+    // Curated lists (Yellow)
+    'github-simplify': { text: 'var(--color-warning)', bg: 'var(--color-warning-container)' },
+    // Startup platforms (Purple/Secondary)
+    'wellfound': { text: 'var(--color-secondary)', bg: 'var(--color-secondary-container)' },
 };
 
 export const SOURCE_LABELS: Record<string, string> = {
@@ -170,20 +200,55 @@ export const SOURCE_LABELS: Record<string, string> = {
     'wellfound': 'Wellfound',
 };
 
+export const SOURCE_CATEGORIES = {
+    aggregators: {
+        name: 'Job Board Aggregators',
+        color: 'primary',
+        description: 'Broad coverage from major job boards (LinkedIn, Indeed, Glassdoor, ZipRecruiter). May contain duplicates and slower updates, but widest reach for discovering opportunities.',
+        quality: 'Medium volume, potential duplicates',
+        speed: 'Updates every 6-24 hours',
+        sources: ['jobspy-linkedin', 'jobspy-indeed', 'jobspy-glassdoor', 'jobspy-ziprecruiter'],
+    },
+    ats: {
+        name: 'Company ATS',
+        color: 'success',
+        description: 'Direct from company career pages via ATS APIs (Greenhouse, Lever, Ashby). Most reliable data quality, fastest application process, and up-to-date listings.',
+        quality: 'High quality, no duplicates',
+        speed: 'Real-time updates from company APIs',
+        sources: ['ats-greenhouse', 'ats-lever', 'ats-ashby'],
+    },
+    curated: {
+        name: 'Curated Lists',
+        color: 'warning',
+        description: 'Hand-picked postings from community-maintained GitHub repos (SimplifyJobs). High signal quality but competitive—many applicants use these lists.',
+        quality: 'Manually vetted, new grad focused',
+        speed: 'Updated daily by maintainers',
+        sources: ['github-simplify'],
+    },
+    startups: {
+        name: 'Startup Platforms',
+        color: 'secondary',
+        description: 'Early-stage companies from startup job boards (Wellfound). Often includes equity compensation details, higher risk/reward, and direct founder access.',
+        quality: 'Startup-focused, equity info included',
+        speed: 'Updated as startups post',
+        sources: ['wellfound'],
+    },
+};
+
 /** Card left border colour based on state */
 export function getCardBorderColor(state: JobState): string {
     switch (state) {
         case 'queued':
         case 'review-ready':
-            return 'var(--color-google-blue)';
+            return 'var(--color-primary)';
         case 'review-incomplete':
         case 'docs-failed':
-            return 'var(--color-google-yellow)';
+            return 'var(--color-warning)';
         case 'fill-failed':
-            return 'var(--color-google-red)';
+            return 'var(--color-error)';
         case 'submitted':
         case 'tracking':
-            return 'var(--color-google-green)';
+            return 'var(--color-success)';
         default:
             return 'transparent';
     }

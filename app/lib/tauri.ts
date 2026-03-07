@@ -1,5 +1,6 @@
 /** Notiapply — Tauri invoke and sidecar wrappers */
 
+import { logger } from './logger';
 import type { SidecarEvent } from './types';
 
 // Dynamic import guards — Tauri APIs only available in desktop context
@@ -59,7 +60,7 @@ export async function startFillSession(
     });
 
     sidecar.stderr.on('data', (line: string) => {
-        console.error('[sidecar]', line);
+        logger.error(line, 'sidecar');
     });
 
     sidecar.on('close', (data: { code: number | null }) => {

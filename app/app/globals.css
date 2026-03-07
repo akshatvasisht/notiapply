@@ -1,69 +1,175 @@
 /* Notiapply — Global Styles
-   Core colour palette with Google semantic primaries.
-   Dark mode via @media (prefers-color-scheme). */
+   Google Material You design system with dynamic color palettes.
+   Refined typography, elevated surfaces, expressive motion. */
 
 @import "tailwindcss";
 
 @theme {
-  /* Surfaces */
-  --color-surface: #FFFFFF;
-  --color-surface-raised: #F8F9FA;
-  --color-border: #E8EAED;
+  /* Surface & Elevation System */
+  --color-surface: #F8F9FA;
+  --color-surface-container: #FFFFFF;
+  --color-surface-container-high: #FFFFFF;
+  --color-surface-container-low: #F1F3F4;
+  --color-outline: #DDE1E6;
+  --color-outline-variant: #E8EAED;
 
-  /* Text hierarchy */
-  --color-text-primary: #202124;
-  --color-text-secondary: #5F6368;
-  --color-text-tertiary: #80868B;
-  --color-text-disabled: #BDC1C6;
-  --color-text-inverse: #FFFFFF;
+  /* Dynamic Color Palette (Blue primary) */
+  --color-primary: #1967D2;
+  --color-primary-container: #D3E3FD;
+  --color-on-primary: #FFFFFF;
+  --color-on-primary-container: #001B3F;
 
-  /* Google semantic primaries */
-  --color-google-blue: #1A73E8;
-  --color-google-green: #34A853;
-  --color-google-yellow: #F9AB00;
-  --color-google-red: #EA4335;
+  --color-secondary: #5E6267;
+  --color-secondary-container: #E2E3E5;
+  --color-on-secondary-container: #1A1C1E;
 
-  /* Tints */
-  --color-blue-tint: #E8F0FE;
-  --color-green-tint: #E6F4EA;
-  --color-yellow-tint: #FEF7E0;
-  --color-red-tint: #FCE8E6;
+  /* Semantic colors (Material 3 tonal palettes) */
+  --color-success: #1E8E3E;
+  --color-success-container: #C4EED0;
+  --color-warning: #EA8600;
+  --color-warning-container: #FEEFC3;
+  --color-error: #C5221F;
+  --color-error-container: #FFDAD6;
+  --color-info: #1967D2;
+  --color-info-container: #D3E3FD;
+
+  /* Text & Icon hierarchy */
+  --color-on-surface: #1F1F1F;
+  --color-on-surface-variant: #444746;
+  --color-on-surface-secondary: #5F6368;
+  --color-on-surface-disabled: #9AA0A6;
+
+  /* Shadows & Elevation */
+  --elevation-1: 0 1px 2px 0 rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
+  --elevation-2: 0 1px 3px 0 rgba(60, 64, 67, 0.3), 0 4px 8px 3px rgba(60, 64, 67, 0.15);
+  --elevation-3: 0 4px 8px 3px rgba(60, 64, 67, 0.15), 0 1px 3px 0 rgba(60, 64, 67, 0.3);
+
+  /* Spacing Scale (8pt grid system) */
+  --spacing-xxs: 2px;
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 20px;
+  --spacing-2xl: 24px;
+  --spacing-3xl: 32px;
+
+  /* Typography Scale */
+  --font-size-2xs: 10px;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-md: 13px;
+  --font-size-base: 14px;
+  --font-size-lg: 18px;
+  --font-size-xl: 24px;
+  --font-size-2xl: 32px;
+
+  /* Border Radius */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-pill: 20px;
+  --radius-full: 50%;
 }
 
 @layer base {
   body {
-    font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    font-size: 13px;
-    color: var(--color-text-primary);
+    font-family: 'Google Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--color-on-surface);
     background: var(--color-surface);
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     overflow: hidden;
   }
 
-  /* Dark mode */
+  /* Typography Scale (Google Sans) */
+  .text-display {
+    font-size: 57px;
+    line-height: 64px;
+    font-weight: 400;
+    letter-spacing: -0.25px;
+  }
+
+  .text-headline-large {
+    font-size: 32px;
+    line-height: 40px;
+    font-weight: 400;
+  }
+
+  .text-headline {
+    font-size: 24px;
+    line-height: 32px;
+    font-weight: 400;
+  }
+
+  .text-title {
+    font-size: 16px;
+    line-height: 24px;
+    font-weight: 500;
+    letter-spacing: 0.1px;
+  }
+
+  .text-body {
+    font-size: 14px;
+    line-height: 20px;
+    font-weight: 400;
+    letter-spacing: 0.25px;
+  }
+
+  .text-label {
+    font-size: 12px;
+    line-height: 16px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+  }
+
+  /* Dark mode with true Material You tokens */
   @media (prefers-color-scheme: dark) {
     :root {
-      --color-surface: #1C1C1E;
-      --color-surface-raised: #2C2C2E;
-      --color-border: #3A3A3C;
-      --color-text-primary: #F2F2F7;
-      --color-text-secondary: #AEAEB2;
-      --color-text-tertiary: #636366;
-      --color-text-disabled: #48484A;
-      --color-google-blue: #4DA3FF;
-      --color-google-green: #4CD964;
-      --color-google-yellow: #FFD60A;
-      --color-google-red: #FF453A;
-      --color-blue-tint: #1C2D4A;
-      --color-green-tint: #1C3A2A;
-      --color-yellow-tint: #3A3420;
-      --color-red-tint: #3A1C1C;
+      --color-surface: #131313;
+      --color-surface-container: #1F1F1F;
+      --color-surface-container-high: #2A2A2A;
+      --color-surface-container-low: #1A1A1A;
+      --color-outline: #747775;
+      --color-outline-variant: #444746;
+
+      --color-primary: #A8C7FA;
+      --color-primary-container: #004A77;
+      --color-on-primary: #003355;
+      --color-on-primary-container: #D3E3FD;
+
+      --color-secondary: #C4C7C5;
+      --color-secondary-container: #444746;
+      --color-on-secondary-container: #E2E3E5;
+
+      --color-success: #81C995;
+      --color-success-container: #0F5223;
+      --color-warning: #FFBB33;
+      --color-warning-container: #5C3800;
+      --color-error: #F2B8B5;
+      --color-error-container: #8C1D18;
+      --color-info: #A8C7FA;
+      --color-info-container: #004A77;
+
+      --color-on-surface: #E3E3E3;
+      --color-on-surface-variant: #C4C7C5;
+      --color-on-surface-secondary: #9AA0A6;
+      --color-on-surface-disabled: #5F6368;
+
+      --elevation-1: 0 1px 2px 0 rgba(0, 0, 0, 0.3), 0 1px 3px 1px rgba(0, 0, 0, 0.15);
+      --elevation-2: 0 1px 3px 0 rgba(0, 0, 0, 0.3), 0 4px 8px 3px rgba(0, 0, 0, 0.15);
+      --elevation-3: 0 4px 8px 3px rgba(0, 0, 0, 0.15), 0 1px 3px 0 rgba(0, 0, 0, 0.3);
     }
   }
 
-  /* Scrollbar styling */
+  /* Refined scrollbar */
   ::-webkit-scrollbar {
-    width: 6px;
+    width: 8px;
+    height: 8px;
   }
 
   ::-webkit-scrollbar-track {
@@ -71,7 +177,140 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: var(--color-border);
-    border-radius: 3px;
+    background: var(--color-outline-variant);
+    border-radius: 4px;
+    border: 2px solid var(--color-surface);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-outline);
+  }
+
+  /* Material Motion — Emphasized easing curves */
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes scaleIn {
+    from {
+      opacity: 0;
+      transform: scale(0.92);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  @keyframes shimmer {
+    0% { opacity: 0.5; }
+    50% { opacity: 0.8; }
+    100% { opacity: 0.5; }
+  }
+
+  @keyframes slideUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* Utility classes for Material elevation */
+  .elevation-1 {
+    box-shadow: var(--elevation-1);
+  }
+
+  .elevation-2 {
+    box-shadow: var(--elevation-2);
+  }
+
+  .elevation-3 {
+    box-shadow: var(--elevation-3);
+  }
+
+  /* Focus states with proper Material styling */
+  button:focus-visible,
+  input:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+
+  /* Markdown rendering styles for job descriptions */
+  .job-description-markdown h2 {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--color-on-surface);
+    margin-top: 24px;
+    margin-bottom: 12px;
+    line-height: 1.4;
+  }
+
+  .job-description-markdown h2:first-child {
+    margin-top: 0;
+  }
+
+  .job-description-markdown h3 {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--color-on-surface);
+    margin-top: 20px;
+    margin-bottom: 10px;
+    line-height: 1.4;
+  }
+
+  .job-description-markdown p {
+    margin-bottom: 12px;
+    line-height: 1.6;
+  }
+
+  .job-description-markdown ul,
+  .job-description-markdown ol {
+    margin-left: 20px;
+    margin-bottom: 12px;
+  }
+
+  .job-description-markdown li {
+    margin-bottom: 6px;
+    line-height: 1.6;
+  }
+
+  .job-description-markdown strong {
+    font-weight: 600;
+    color: var(--color-on-surface);
+  }
+
+  .job-description-markdown code {
+    font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+    font-size: 12px;
+    background: var(--color-surface-raised);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--color-on-surface);
+  }
+
+  .job-description-markdown hr {
+    border: none;
+    border-top: 1px solid var(--color-outline-variant);
+    margin: 20px 0;
+  }
+
+  .job-description-markdown a {
+    color: var(--color-primary);
+    text-decoration: none;
+  }
+
+  .job-description-markdown a:hover {
+    text-decoration: underline;
   }
 }

@@ -6,6 +6,16 @@ const nextConfig: NextConfig = {
     unoptimized: true,
   },
   serverExternalPackages: ['pg', 'pg-pool'],
+
+  // Turbopack config (Next.js 16 default)
+  turbopack: {
+    resolveAlias: {
+      // Prevent pg from bundling in browser by aliasing to empty module
+      pg: './lib/pg-stub.ts',
+    },
+  },
+
+  // Webpack config (for --webpack flag or production builds)
   webpack: (config, { isServer }) => {
     if (!isServer) {
       // Don't bundle Node.js modules for the browser

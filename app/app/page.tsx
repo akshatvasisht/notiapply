@@ -23,7 +23,7 @@ export default function Home() {
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         height: '100vh', color: 'var(--color-text-tertiary)',
       }}>
-        Loading…
+        Loading...
       </div>
     );
   }

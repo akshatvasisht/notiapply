@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist } from "next/font/google";
+import ErrorBoundary from "./components/common/ErrorBoundary";
 import "./globals.css";
 
 const geist = Geist({ subsets: ["latin"] });
@@ -16,7 +17,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={geist.className}>
-      <body>{children}</body>
+      <body>
+        <ErrorBoundary>
+          {children}
+        </ErrorBoundary>
+      </body>
     </html>
   );
 }

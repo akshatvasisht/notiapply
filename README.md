@@ -1,3 +1,12 @@
+<p align="center">
+  <img 
+    width="128" 
+    height="128" 
+    alt="Notiapply Logo" 
+    src="docs/images/logo.png" 
+  />
+</p>
+
 ![Rust](https://img.shields.io/badge/Rust-1.80%2B-black?logo=rust&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178C6?logo=typescript&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
@@ -17,6 +26,16 @@ Notiapply follows a 4-layer extraction → orchestration → execution architect
 2. **Orchestration Layer (n8n & PostgreSQL)**: Normalizes inbound listings and applies user-defined filtering logic via structured relational pipelines.
 3. **Application Layer (Tauri + Next.js)**: A desktop shell providing a Kanban interface for queue management, configuration schemas, and triggers.
 4. **Execution Layer (Playwright Sidecar)**: A Node.js sidecar spawning a deterministic Chromium instance. It leverages the Simplify extension for shadow DOM injection and generates tailored LaTeX resumes on-the-fly.
+
+<details>
+  <summary><b>View Screenshots</b></summary>
+  <br>
+
+| Dashboard | Sidecar |
+| :---: | :---: |
+| <img src="docs/images/dashboard.png" width="100%"> | <img src="docs/images/sidecar.png" width="100%"> |
+
+</details>
 
 ## Technical Highlights
 

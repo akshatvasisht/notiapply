@@ -98,3 +98,59 @@ Instead of wrestling with WebKit limits inside Tauri, automation is distinctly o
 
 ### Static Export Next.js
 The UI avoids all SSR/Node features of Next.js, compiling down to raw static HTML/JS/CSS via `output: 'export'`. This allows the Tauri rust binary to serve the frontend purely from memory, keeping the footprint microscopic compared to an Electron equivalent.
+
+---
+
+## User Interface Reference
+
+### Keyboard Shortcuts
+
+The application supports comprehensive keyboard navigation for power users:
+
+**Global Shortcuts**
+- `?` - Show keyboard shortcuts help modal
+- `Ctrl+F` - Focus search input
+- `Esc` - Progressive dismiss (shortcuts → selection → focus → view)
+
+**Navigation**
+- `Arrow Keys` - Navigate between job cards within columns
+- `Enter` - Open focused job in detail view
+- `1-5` - Jump to specific board columns (Incoming/Ready/Attention/Submitted/Archive)
+- `Tab` - Standard focus cycling through interactive elements
+
+**Actions**
+- `A` - Archive selected job(s)
+- `S` - Mark job(s) as submitted
+- `R` - Reject/remove job(s) from pipeline
+- `Ctrl+A` - Select all visible jobs (respects active search filter)
+
+**Multi-Select Mode**
+- `Ctrl+Click` - Toggle individual job selection
+- `Shift+Click` - Select range of jobs (future enhancement)
+
+### Search and Filtering
+
+The global search bar filters jobs client-side across:
+- Job title
+- Company name
+- Location
+
+Search is case-insensitive and updates results in real-time. The filter persists across view changes but resets on refresh.
+
+### Multi-Select Workflow
+
+1. `Ctrl+Click` individual job cards to select multiple
+2. Selected cards display with primary color background and border
+3. Selection count appears in topnav, replacing queue count
+4. Use "Clear" button or `Esc` to deselect all
+5. Bulk actions apply to all selected jobs simultaneously
+
+### Toast Notifications
+
+Non-blocking feedback appears bottom-right for:
+- Success operations (green)
+- Error conditions (red)
+- Warnings (yellow)
+- Informational messages (blue)
+
+Toasts auto-dismiss after 3 seconds or can be manually dismissed.

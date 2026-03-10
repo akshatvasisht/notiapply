@@ -1,4 +1,4 @@
-# Notiapply — Testing Guide
+# Notiapply: Testing Guide
 
 This document outlines the testing strategy, standards, and execution procedures for the Notiapply project.
 
@@ -35,6 +35,17 @@ Executed via Cargo. Validates internal Rust logic in the Tauri main process.
 ```bash
 cd app/src-tauri
 cargo test
+```
+
+### Python Server Logic
+Validates the resume tailoring engine and scraper data schemas.
+
+```bash
+# Verify resume tailoring logic
+python3 server/tests/test_apply_diff_logic.py
+
+# Verify scraper schema validation
+python3 server/tests/test_pydantic_schemas.py
 ```
 
 ## Environment Setup

@@ -15,7 +15,7 @@ Notiapply can execute entirely on your local machine, or run a "split brain" arc
 
 ### Option 1: The Idempotent Bootstrap (Recommended for Remote DB/Scraper)
 
-The included `bootstrap.sh` script installs the entire backend pipeline. It is idempotent—safe to run multiple times.
+The included `bootstrap.sh` script installs the entire backend pipeline. It is idempotent, meaning it is safe to run multiple times.
 
 ```bash
 chmod +x bootstrap.sh
@@ -73,7 +73,7 @@ The compiled binary will be located in `app/src-tauri/target/release/`.
 1. Open the Tauri application.
 2. Complete the initial 4-step **Setup Wizard**.
    - Input your Google AI Studio (`gemini-1.5-flash`) API Key.
-   - Attach your baseline `.tex` master resume.
+   - Attach your baseline `.tex` master resume. Generic templates are provided in [docs/examples/](examples/).
    - Define your target behavioral tags and ATS platform watchlist.
 3. Once in the Kanban board, access the **Settings** panel to configure the n8n webhook URLs if operating in the remote-split architecture.
 4. Jobs will populate in the `incoming` and `ready` columns as the Python fleet executes.

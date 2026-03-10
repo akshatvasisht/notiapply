@@ -1,0 +1,151 @@
+\documentclass[letterpaper,11pt]{article}
+\usepackage{latexsym}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage{marvosym}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{verbatim}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+\usepackage[english]{babel}
+\usepackage{tabularx}
+\usepackage{newtxtext}
+\input{glyphtounicode}
+
+\usepackage{setspace}
+\setstretch{0.9}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+\setlength{\footskip}{4.08003pt}
+
+% Adjust margins
+\addtolength{\oddsidemargin}{-0.5in}
+\addtolength{\evensidemargin}{-0.5in}
+\addtolength{\textwidth}{1in}
+\addtolength{\topmargin}{-.6in}
+\addtolength{\textheight}{1.15in}
+
+\urlstyle{same}
+
+\raggedbottom
+\raggedright
+\setlength{\tabcolsep}{0in}
+
+% Sections formatting
+\titleformat{\section}{
+  \vspace{-12pt}\scshape\raggedright\large
+}{}{0em}{}[\color{black}\titrule \vspace{-5pt}]
+
+% Ensure that generated pdf is machine readable
+\pdfgentounicode=1
+
+%-------------------------
+% Custom commands (Compatible with Notiapply's tailoring engine)
+\newcommand{\resumeItem}[1]{
+  \item\small{
+    {#1 \vspace{-4pt}}
+  }
+}
+
+\newcommand{\resumeSubheading}[4]{
+    \vspace{-2pt}\item
+    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
+      \textbf{#1} & #2 \\[-2pt]
+      \textit{\small#3} & \textit{\small #4} \\
+    \end{tabular*}\vspace{-9pt}
+}
+
+\renewcommand\labelitemii{$\vcenter{\hbox{\tiny$\bullet$}}$}
+
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0.15in, label={}]}
+\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
+\newcommand{\resumeItemListStart}{\begin{itemize}}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-5pt}}
+
+%-------------------------------------------
+%%%%%%  MASTER RESUME INSTRUCTIONS  %%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+% 1. BLOCK TAGS: Wrap every experience/project in BLOCK tags.
+%    Notiapply will select the best blocks to fit a one-page limit.
+%    Format: % <BLOCK:UniqueName> ... % <ENDBLOCK:UniqueName>
+%
+% 2. SKILL INJECTION: Place % SKILLS_INJECT_POINT inside your 
+%    Skills section. Notiapply will append relevant keywords found
+%    in the job description but missing from your master.
+%
+%-------------------------------------------
+
+\begin{document}
+
+%----------HEADING----------
+\begin{center}
+    \textbf{\Huge \scshape John Q. Candidate} \\ \vspace{1pt}
+    \small 555-012-3456 $|$ \href{mailto:john.doe@example.com}{\underline{john.doe@example.com}} $|$ 
+    \href{https://linkedin.com/in/johndoe}{\underline{linkedin.com/in/johndoe}}
+\end{center}
+
+%-----------EDUCATION-----------
+\section{Education}
+  \resumeSubHeadingListStart
+    \resumeSubheading
+      {University of Examples}{Aug 2021 -- May 2025}
+      {Bachelor of Science in your Degree}{City, ST}
+  \resumeSubHeadingListEnd
+
+%-----------EXPERIENCE-----------
+\section{Experience}
+  \resumeSubHeadingListStart
+
+    % <BLOCK:MainExperience>
+    \resumeSubheading
+      {Senior Software Engineer}{Jan 2023 -- Present}
+      {Major Tech Company}{City, ST}
+      \resumeItemListStart
+        \resumeItem{This is an example of a core experience point that you want to keep.}
+        \resumeItem{The LLM can tailor these bullets if they are too generic.}
+      \resumeItemListEnd
+    % <ENDBLOCK:MainExperience>
+
+    % <BLOCK:SecondaryExperience>
+    \resumeSubheading
+      {Junior Developer}{Jun 2020 -- Dec 2022}
+      {Startup Inc}{Remote}
+      \resumeItemListStart
+        \resumeItem{This block might be removed if the LLM decides it doesn't fit on one page.}
+      \resumeItemListEnd
+    % <ENDBLOCK:SecondaryExperience>
+
+  \resumeSubHeadingListEnd
+
+%-----------PROJECTS-----------
+\section{Projects}
+  \resumeSubHeadingListStart
+
+    % <BLOCK:PrimaryProject>
+    \resumeSubheading
+      {Portfolio Project A}{2024}
+      {TypeScript, React, PostgreSQL}{}
+      \resumeItemListStart
+        \resumeItem{Add as many projects as you want; Notiapply will filter for the best match.}
+      \resumeItemListEnd
+    % <ENDBLOCK:PrimaryProject>
+
+  \resumeSubHeadingListEnd
+
+%-----------SKILLS-----------
+\section{Skills}
+  \begin{itemize}[leftmargin=0.15in, label={}]
+    \small{\item{
+        \textbf{Programming Languages}{: Python, Java, JavaScript, TypeScript, SQL} \\
+        \textbf{Tools \& Frameworks}{: React, Next.js, Node.js, Docker, Git, AWS} \\
+        % % SKILLS_INJECT_POINT
+        \textbf{Certifications}{: Professional AWS Certification, Certified Kubernetes Administrator}
+    }}
+  \end{itemize}
+
+\end{document}

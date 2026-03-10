@@ -16,14 +16,14 @@
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-4169E1?logo=postgresql&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
-Notiapply is a self-hosted job search management platform. It consolidates discovery, document generation, and submission tracking into a single local-first desktop application — keeping all data under your control with no third-party services.
+Notiapply is a self-hosted job search management pipeline. It consolidates discovery, document generation, and submission tracking into a single local-first desktop application, keeping all data under your control with no third-party services.
 
 ## How it Works
 
 1. **Discovery**: Python scrapers poll ATS APIs (Greenhouse, Lever, Ashby) and job aggregators on a schedule, deduplicating results into a local PostgreSQL database.
 2. **Preparation**: An LLM tailors your master resume to each job description, compiling a job-specific PDF via LaTeX.
-3. **Submission**: A Playwright-based sidecar fills ATS forms deterministically, halting for manual review when it encounters unknown fields or CAPTCHAs.
-4. **Tracking**: A Kanban board surfaces your full pipeline — from incoming listings to submitted applications — with search, filtering, and bulk actions.
+3. **Submission**: A Playwright-based sidecar integrates with the **Simplify** browser extension to fill ATS forms deterministically, halting for manual review when it encounters unknown fields or CAPTCHAs.
+4. **Tracking**: A Kanban board surfaces your full pipeline: from incoming listings to submitted applications, with support for search, filtering, and bulk actions.
 
 <details>
   <summary><b>View Screenshots</b></summary>
@@ -37,7 +37,7 @@ Notiapply is a self-hosted job search management platform. It consolidates disco
 
 ## Technical Highlights
 
-- **Data Sovereignty**: Everything — resumes, keys, pipeline state — lives locally. Nothing is sent to third-party services.
+- **Data Sovereignty**: All application data (resumes, API keys, and pipeline state) remains strictly local. No information is transmitted to third-party services.
 - **Deterministic Automation**: A Playwright sidecar handles form submission via shadow-DOM traversal, avoiding the fragility of AI-driven agents.
 - **Fault-Tolerant Execution**: Per-job sidecar isolation means a bad ATS schema never stalls the rest of the queue.
 - **Dynamic Resume Generation**: Real-time LaTeX template injection produces a tailored PDF for every application.

@@ -34,9 +34,9 @@ This document details the architectural layout, core components, and data lifecy
 Notiapply is explicitly engineered to operate without any paid proxy service:
 
 - **Tier 1 (JobSpy)**: LinkedIn, Indeed, Glassdoor, and ZipRecruiter are scraped at the request rate of a single job-seeker. These volumes are several orders of magnitude below what triggers IP bans, which target bulk commercial scrapers.
-- **Tier 4 (Wellfound)**: Uses **Scrapling + Camoufox** — a fingerprint-spoofing browser that presents as a legitimate, randomized user agent and TLS profile. Cloudflare cannot distinguish it from a real user, so no residential proxy IP rotation is required.
+- **Tier 4 (Wellfound)**: Uses **Scrapling + Camoufox**: a fingerprint-spoofing browser that presents as a legitimate, randomized user agent and TLS profile. Cloudflare cannot distinguish it from a real user, so no residential proxy IP rotation is required.
 - **Tier 2 (ATS Direct)**: Greenhouse, Lever, and Ashby expose public JSON API endpoints designed to be consumed by job boards. No anti-scraping measures apply.
-- **Tier 3 (GitHub)**: Raw GitHub API with a personal access token. Rate limit is 5,000 req/hour — far above what the pipeline consumes.
+- **Tier 3 (GitHub)**: Raw GitHub API with a personal access token. Rate limit is 5,000 req/hour, which is far above what the pipeline consumes.
 
 > Residential proxy services like Decodo cost $2–15/GB and shift IP risk to a third party. The above stack eliminates this dependency entirely through smarter tooling choices.
 
@@ -81,9 +81,16 @@ Notiapply maps entirely to a local execution environment or a self-hosted instan
 **Phase 2: LLM Mutation**
 1. A secondary n8n workflow detects the `incoming` job.
 2. It hits the Gemini LLM endpoint with the job description and the user's master resume.
-3. The LLM generates a tailored diff.
-4. `apply_diff.py` modifies the LaTeX template and compiles the new `resume_{job_id}.pdf`.
+3. The LLM selects high-relevance experience/project blocks using `% <BLOCK:Name>` tags and generates a tailored diff for the remaining content.
+4. `apply_diff.py` performs block-level truncation, modifies the LaTeX template, and compiles the new `resume_{job_id}.pdf`.
 5. The job state advances to `ready`.
+
+### Tailoring Methodology
+
+Notiapply uses two distinct rigor models for application documents:
+
+- **Resume Tailoring (Subtractive Rigor)**: The engine treats the master resume as a superset. It uses block-level truncation to remove projects or experiences that don't fit the specific job's relevance or page-count constraints. This ensures every bullet point is derived from your verified history while optimizing for spatial constraints.
+- **Cover Letter Generation (Additive Rigor)**: Unlike the resume, the cover letter is purely generative. It uses the `{{BODY}}` tag as its primary anchor, constructing a unique prose narrative that bridges the gap between your master history and the job requirements. This methodology focuses on semantic alignment and storytelling rather than spatial filtering.
 
 **Phase 3: Automated Submission**
 1. The user clicks "Start Session" in the Tauri UI.
@@ -176,7 +183,7 @@ The app can pre-fill personalized outreach drafts using the configured LLM endpo
 - Tone is configurable: professional / casual / enthusiastic
 - Rate-limited to 500ms between requests to avoid API throttling
 
-All sending is manual — the app never sends messages automatically.
+All sending is manual: the app never sends messages automatically.
 
 ### Smart Archiving
 

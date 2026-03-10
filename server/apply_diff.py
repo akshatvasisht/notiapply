@@ -19,24 +19,51 @@ import os
 def apply_diff(master_latex: str, diff: dict) -> str:
     result = master_latex
 
+    # 1. Block-level Truncation
+    # If blocks_to_keep is provided, delete all other tagged blocks
+    blocks_to_keep = diff.get("blocks_to_keep")
+    if blocks_to_keep is not None:
+        # Regex to find blocks like % <BLOCK:Name> ... % <ENDBLOCK:Name>
+        # Use re.DOTALL to match across lines
+        pattern = re.compile(r"%\s*<BLOCK:([^>]+)>(.*?)%\s*<ENDBLOCK:\1>", re.DOTALL)
+        
+        def filter_blocks(match):
+            block_name = match.group(1).strip()
+            content = match.group(0)
+            if block_name in blocks_to_keep:
+                return content
+            return "" # Remove block
+            
+        result = pattern.sub(filter_blocks, result)
+
+    # 2. Bullet Level Swaps (for the remaining blocks)
     for swap in diff.get("bullets_swapped", []):
         remove_text = swap["remove"].strip()
         add_text = swap["add"].strip()
-        if remove_text not in result:
-            raise ValueError(f"Bullet not found in master: {remove_text[:80]}")
-        result = result.replace(remove_text, add_text, 1)
+        if remove_text in result:
+             result = result.replace(remove_text, add_text, 1)
 
+    # 3. Keyword Injection
+    # Look for any skill-like line and append there if marker exists
     keywords = diff.get("keywords_added", [])
     if keywords:
         inject_str = ", ".join(keywords)
-        if "% SKILLS_INJECT_POINT" not in result:
-            sys.stderr.write("Warning: SKILLS_INJECT_POINT marker missing — keyword injection skipped\n")
-        else:
+        if "% SKILLS_INJECT_POINT" in result:
+            def inject_callback(match):
+                line = match.group(0).rstrip()
+                # If the line ends with a brace (like \textbf{...}), insert before it
+                if line.endswith("}"):
+                    return line[:-1] + f", {inject_str}}}"
+                return line + f", {inject_str}"
+
             result = re.sub(
-                r"(\\textbf\{Skills\}[^\n]*)",
-                lambda m: m.group(0).rstrip() + f", {inject_str}",
+                r"(\\textbf\{(Skills|Programming Languages|Tools)[^}]*\}[^\n]*)",
+                inject_callback,
                 result, count=1
             )
+        else:
+            sys.stderr.write("Warning: SKILLS_INJECT_POINT marker missing — keyword injection skipped\n")
+            
     return result
 
 

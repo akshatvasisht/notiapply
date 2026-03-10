@@ -9,6 +9,7 @@ import { getApplicationByJobId, updateJobState } from '@/lib/db';
 import { SOURCE_LABELS, SOURCE_COLORS, getCardBorderColor } from '@/lib/types';
 import { timeAgo, formatSalary } from '@/lib/utils';
 import CompanyAvatar from '../common/CompanyAvatar';
+import ActionButton from '../common/ActionButton';
 
 interface FocusModeProps {
   job: Job;
@@ -64,22 +65,7 @@ function StateActions({ job, onAction }: { job: Job; onAction: (newState: string
   }
 }
 
-function ActionButton({ label, color, onClick }: { label: string; color: string; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 500,
-        background: 'transparent', color, border: `1px solid ${color}`,
-        cursor: 'pointer', transition: 'all 0.15s',
-      }}
-      onMouseEnter={e => { e.currentTarget.style.background = color; e.currentTarget.style.color = 'var(--color-text-inverse)'; }}
-      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color; }}
-    >
-      {label}
-    </button>
-  );
-}
+
 
 export default function FocusMode({ job, onBack }: FocusModeProps) {
   const [application, setApplication] = useState<Application | null>(null);
@@ -110,49 +96,27 @@ export default function FocusMode({ job, onBack }: FocusModeProps) {
   const borderColor = getCardBorderColor(currentJob.state);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       {/* Header */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 12,
         height: 44, padding: '0 16px',
         background: 'var(--color-surface-container)', borderBottom: '1px solid var(--color-border)',
+        flexShrink: 0,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button
             onClick={onBack}
             style={{
               background: 'none', border: 'none', cursor: 'pointer',
               fontSize: 16, color: 'var(--color-text-secondary)', padding: '4px 8px',
+              display: 'flex', alignItems: 'center',
             }}
           >
             ‹ Back
           </button>
-          <button
-            onClick={() => {
-              navigator.clipboard.writeText(currentJob.url);
-            }}
-            style={{
-              background: 'none',
-              border: '1px solid var(--color-outline-variant)',
-              borderRadius: 6,
-              cursor: 'pointer',
-              fontSize: 12,
-              color: 'var(--color-on-surface-variant)',
-              padding: '4px 10px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4,
-            }}
-            title="Copy job URL"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-            </svg>
-            Copy URL
-          </button>
         </div>
-        <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-primary)' }}>
+        <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: 'var(--color-text-primary)', textAlign: 'center' }}>
           {currentJob.company} — {currentJob.title}
         </span>
         <span style={{
@@ -164,9 +128,9 @@ export default function FocusMode({ job, onBack }: FocusModeProps) {
       </div>
 
       {/* Two-column layout */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
         {/* Left — Job details */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: 24, borderRight: '1px solid var(--color-border)' }}>
+        <div style={{ flex: 1, overflowY: 'auto', padding: 24, borderRight: '1px solid var(--color-border)', minHeight: 0 }}>
           <div style={{
             borderLeft: `4px solid ${borderColor}`,
             paddingLeft: 16, marginBottom: 24,
@@ -208,7 +172,7 @@ export default function FocusMode({ job, onBack }: FocusModeProps) {
         </div>
 
         {/* Right — Application details & timeline */}
-        <div style={{ width: 360, overflowY: 'auto', padding: 24 }}>
+        <div style={{ width: 360, overflowY: 'auto', padding: 24, minHeight: 0, flexShrink: 0 }}>
           <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)', marginTop: 0, marginBottom: 16 }}>
             Status
           </h3>

@@ -45,3 +45,7 @@ Thumbs.db
 
 # Agent Context
 agentcontext/
+
+# Test Reports
+app/playwright-report/
+app/test-results/

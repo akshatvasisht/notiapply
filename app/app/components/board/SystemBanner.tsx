@@ -19,16 +19,28 @@ export default function SystemBanner({ type, running, result, message, onDismiss
 
         return (
             <div style={{
-                height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16,
-                background: 'var(--color-surface)', borderTop: '1px solid var(--color-border)',
-                fontSize: 12, color: 'var(--color-text-secondary)', padding: '0 16px',
+                position: 'fixed',
+                bottom: 0,
+                left: 0,
+                right: 0,
+                height: 36,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 16,
+                background: 'var(--color-surface)',
+                borderTop: '1px solid var(--color-border)',
+                fontSize: 12,
+                color: 'var(--color-text-secondary)',
+                padding: '0 16px',
+                zIndex: 100,
                 animation: 'fadeUp 0.2s ease-out',
             }}>
                 {running ? (
                     <span style={{ color: 'var(--color-warning)', fontWeight: 500 }}>
                         ◌ Running...
                     </span>
-                ) : result ? (
+                ) : result && result.event === 'done' ? (
                     <>
                         <span style={{ color: 'var(--color-success)', fontWeight: 500 }}>
                             ✓ Session complete
@@ -79,9 +91,20 @@ export default function SystemBanner({ type, running, result, message, onDismiss
 
     return (
         <div style={{
-            height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12,
-            background: style.bg, borderTop: `1px solid ${style.border}`,
-            fontSize: 12, padding: '0 16px',
+            position: 'fixed',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: 36,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 12,
+            background: style.bg,
+            borderTop: `1px solid ${style.border}`,
+            fontSize: 12,
+            padding: '0 16px',
+            zIndex: 100,
             animation: 'fadeUp 0.2s ease-out',
         }}>
             <span style={{ color: style.text, fontWeight: 500 }}>

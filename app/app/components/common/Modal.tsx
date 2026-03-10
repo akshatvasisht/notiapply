@@ -36,9 +36,9 @@ export default function Modal({ children, onClose, width = '85%', maxHeight = '9
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                background: 'rgba(0, 0, 0, 0.5)',
-                backdropFilter: 'blur(4px)',
-                animation: 'fadeIn 0.2s ease-out',
+                background: 'rgba(0, 0, 0, 0.4)',
+                // Removed backdropFilter for performance; blur is heavy on some Linux/GPU setups
+                animation: 'fadeIn 0.1s ease-out',
             }}
             onClick={onClose}
         >
@@ -52,7 +52,7 @@ export default function Modal({ children, onClose, width = '85%', maxHeight = '9
                     overflow: 'hidden',
                     display: 'flex',
                     flexDirection: 'column',
-                    animation: 'scaleIn 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                    animation: 'scaleIn 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
                 }}
                 onClick={(e) => e.stopPropagation()}
             >

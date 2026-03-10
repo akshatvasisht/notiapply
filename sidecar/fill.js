@@ -51,7 +51,38 @@ function detectAts(url) {
     return 'unknown';
 }
 
+/**
+ * Preflight: verify that the required external binaries exist before touching the DB.
+ * Emits a structured `preflight_failed` NDJSON event so the Tauri UI can surface
+ * an actionable error message rather than a cryptic Playwright launch failure.
+ *
+ * Design note: We depend on Simplify (borrow vs. build). Simplify has already solved
+ * ATS form detection and shadow-DOM field mapping — reimplementing that would be
+ * expensive and fragile. The tradeoff is that the user must have it installed and
+ * configured via Settings. This preflight makes that contract explicit at startup.
+ */
+function preflight() {
+    const errors = [];
+
+    if (!fs.existsSync(CHROMIUM_PATH)) {
+        errors.push(`Chromium not found at: ${CHROMIUM_PATH}. Update the path in Settings → Automation.`);
+    }
+
+    if (!fs.existsSync(SIMPLIFY_PATH)) {
+        errors.push(`Simplify extension not found at: ${SIMPLIFY_PATH}. Update the path in Settings → Automation.`);
+    }
+
+    if (errors.length > 0) {
+        emit({ event: 'preflight_failed', errors });
+        process.exit(2);
+    }
+}
+
 async function main() {
+    // Validate that Chromium + Simplify paths exist before touching the DB.
+    // Emits preflight_failed and exits(2) if either is missing.
+    preflight();
+
     const db = new Client({ connectionString: process.env.DATABASE_URL });
     await db.connect();
 

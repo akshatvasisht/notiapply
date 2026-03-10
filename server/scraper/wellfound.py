@@ -1,78 +1,37 @@
 #!/usr/bin/env python3
-"""Tier 4 scraper: Wellfound via CF-Clearance-Scraper + GraphQL __NEXT_DATA__ extraction.
+"""Tier 4 scraper: Wellfound via Scrapling + Camoufox.
 
-Best-effort. Cookie expires every 30 minutes, bound to Oracle's IP.
-Breaks periodically when Cloudflare updates detection rules.
+We now use Scrapling and its integration with Camoufox to bypass Cloudflare transparently,
+extracting the __NEXT_DATA__ JSON blob without needing a separate cf-clearance loop.
 """
 
-import hashlib
 import json
 import re
-import subprocess
 import sys
-import requests
 import psycopg2
+from base_scraper import BaseScraper
 
 
-def dedup_hash(company: str, title: str, location: str) -> str:
-    raw = f"{company.lower()}|{title.lower()}|{location.lower()}"
-    return hashlib.sha256(raw.encode()).hexdigest()
-
-
-def get_cf_clearance(target_url: str) -> dict:
-    """Run CF-Clearance-Scraper to obtain cf_clearance cookie and user agent."""
-    result = subprocess.run(
-        [
-            "python3", "/opt/cf-clearance-scraper/main.py",
-            "-u", target_url,
-            "--headless",
-        ],
-        capture_output=True, text=True, timeout=60,
-    )
-
-    if result.returncode != 0:
-        raise RuntimeError(f"CF-Clearance-Scraper failed: {result.stderr.strip()}")
-
-    output = json.loads(result.stdout.strip())
-    return {
-        "cf_clearance": output["cf_clearance"],
-        "user_agent": output["user_agent"],
-    }
-
-
-def scrape_wellfound_listings(search_terms: list[str], locations: list[str], clearance: dict):
-    """Scrape Wellfound job listings using __NEXT_DATA__ extraction."""
-    jobs = []
-    session = requests.Session()
-    session.headers.update({
-        "User-Agent": clearance["user_agent"],
-        "Cookie": f"cf_clearance={clearance['cf_clearance']}",
-    })
-
-    for term in search_terms:
-        slug = term.lower().replace(" ", "-")
-        url = f"https://wellfound.com/role/l/{slug}/united-states"
-
-        try:
-            resp = session.get(url, timeout=30)
-            resp.raise_for_status()
-
-            # Extract __NEXT_DATA__ JSON blob from the page HTML
-            match = re.search(
-                r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
-                resp.text,
-                re.DOTALL,
-            )
-            if not match:
-                continue
-
-            next_data = json.loads(match.group(1))
-
-            # Navigate the __NEXT_DATA__ structure to find job listings
-            props = next_data.get("props", {}).get("pageProps", {})
-            listings = props.get("listings", [])
-            if not listings:
-                # Try alternative paths
+class WellfoundScraper(BaseScraper):
+    def __init__(self, db_url: str):
+        super().__init__(db_url, use_stealth=True)
+        
+    def extract_jobs(self, search_terms: list, locations: list) -> list:
+        jobs = []
+        for term in search_terms:
+            slug = term.lower().replace(" ", "-")
+            url = f"https://wellfound.com/role/l/{slug}/united-states"
+            
+            try:
+                resp = self.fetcher.get(url)
+                
+                next_data_script = resp.css('script#__NEXT_DATA__')
+                if not next_data_script:
+                    continue
+                
+                next_data = json.loads(next_data_script[0].text)
+                props = next_data.get("props", {}).get("pageProps", {})
+                
                 ssg_data = props.get("urqlState", {})
                 for key, val in ssg_data.items():
                     if isinstance(val, dict) and "data" in val:
@@ -81,11 +40,11 @@ def scrape_wellfound_listings(search_terms: list[str], locations: list[str], cle
                             for startup in data["startupResults"].get("results", []):
                                 for highlight_listing in startup.get("highlightedJobListings", []):
                                     company_name = startup.get("name", "Unknown")
-                                    location = highlight_listing.get("locationNames", ["Unknown"])
-                                    location = ", ".join(location) if isinstance(location, list) else location
+                                    raw_locations = highlight_listing.get("locationNames", ["Unknown"])
+                                    loc_str = ", ".join(raw_locations) if isinstance(raw_locations, list) else raw_locations
+                                    
                                     equity_text = highlight_listing.get("equity")
-                                    equity_min = None
-                                    equity_max = None
+                                    equity_min, equity_max = None, None
                                     if equity_text:
                                         equity_match = re.findall(r"(\d+\.?\d*)%", str(equity_text))
                                         if len(equity_match) >= 2:
@@ -96,7 +55,7 @@ def scrape_wellfound_listings(search_terms: list[str], locations: list[str], cle
                                         "source": "wellfound",
                                         "title": highlight_listing.get("title", ""),
                                         "company": company_name,
-                                        "location": location,
+                                        "location": loc_str,
                                         "url": f"https://wellfound.com/jobs/{highlight_listing.get('slug', '')}",
                                         "description_raw": highlight_listing.get("description", ""),
                                         "salary_min": highlight_listing.get("compensation"),
@@ -104,11 +63,10 @@ def scrape_wellfound_listings(search_terms: list[str], locations: list[str], cle
                                         "equity_min": equity_min,
                                         "equity_max": equity_max,
                                     })
+            except Exception:
+                continue
 
-        except Exception:
-            continue
-
-    return jobs
+        return jobs
 
 
 def run(db_url: str, module_config: dict):
@@ -117,47 +75,22 @@ def run(db_url: str, module_config: dict):
 
     cur.execute("SELECT config FROM user_config WHERE id = 1")
     config = cur.fetchone()[0]
-
-    search_terms = config.get("search_terms", ["software engineer"])
-    locations = config.get("locations", ["Remote"])
-
-    errors = []
-    jobs_added = 0
-
-    try:
-        clearance = get_cf_clearance("https://wellfound.com")
-    except Exception as e:
-        cur.close()
-        conn.close()
-        return {"jobs_added": 0, "errors": [f"CF-Clearance failed: {str(e)}"]}
-
-    try:
-        scraped = scrape_wellfound_listings(search_terms, locations, clearance)
-        for job in scraped:
-            h = dedup_hash(job["company"], job["title"], job["location"])
-            cur.execute("""
-                INSERT INTO jobs (source, title, company, location, url,
-                                 description_raw, salary_min, salary_max,
-                                 equity_min, equity_max,
-                                 company_role_location_hash)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (company_role_location_hash) DO NOTHING
-            """, (
-                job["source"], job["title"], job["company"], job["location"],
-                job["url"], job["description_raw"],
-                job.get("salary_min"), job.get("salary_max"),
-                job.get("equity_min"), job.get("equity_max"), h
-            ))
-            if cur.rowcount > 0:
-                jobs_added += 1
-
-        conn.commit()
-    except Exception as e:
-        errors.append(str(e))
-        conn.rollback()
-
     cur.close()
     conn.close()
+
+    search_terms = config.get("search_terms", [])
+    locations = config.get("locations", [])
+
+    scraper = WellfoundScraper(db_url)
+    errors = []
+    jobs_added = 0
+    
+    try:
+        scraped = scraper.extract_jobs(search_terms, locations)
+        jobs_added = scraper.save_jobs(scraped)
+    except Exception as e:
+        errors.append(f"Wellfound Scraper Error: {str(e)}")
+
     return {"jobs_added": jobs_added, "errors": errors}
 
 

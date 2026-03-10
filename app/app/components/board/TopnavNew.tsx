@@ -3,6 +3,9 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SidecarEvent, ATSFailure, AutomationStats, SourceCoverage } from '@/lib/types';
 
+// TopnavNew – metrics + action bar only.
+// App wordmark, search, and settings live in BoardHeader above this.
+
 interface TopnavProps {
     queuedCount: number;
     atsFailures: ATSFailure[];
@@ -13,24 +16,20 @@ interface TopnavProps {
     sessionRunning: boolean;
     sessionResult: SidecarEvent | null;
     scraping: boolean;
-    searchQuery: string;
-    onSearchChange: (query: string) => void;
     onClearSelection: () => void;
     onStartSession: () => void;
     onScrapeNow: () => void;
-    onOpenSettings: () => void;
     onOpenCompanies: () => void;
 }
 
 export default function Topnav({
     queuedCount, atsFailures, automationStats, lastScrapeTime, sourceCoverage,
-    selectedCount, sessionRunning, sessionResult, scraping, searchQuery, onSearchChange,
-    onClearSelection, onStartSession, onScrapeNow, onOpenSettings, onOpenCompanies,
+    selectedCount, sessionRunning, sessionResult, scraping,
+    onClearSelection, onStartSession, onScrapeNow, onOpenCompanies,
 }: TopnavProps) {
     const [menuOpen, setMenuOpen] = useState(false);
     const [metricModal, setMetricModal] = useState<'ats' | 'automation' | 'scrape' | 'sources' | null>(null);
     const menuRef = useRef<HTMLDivElement>(null);
-    const searchRef = useRef<HTMLInputElement>(null);
 
     // Close menu on outside click
     useEffect(() => {
@@ -41,18 +40,6 @@ export default function Topnav({
         };
         document.addEventListener('mousedown', handler);
         return () => document.removeEventListener('mousedown', handler);
-    }, []);
-
-    // Focus search on Ctrl+F
-    useEffect(() => {
-        const handler = (e: KeyboardEvent) => {
-            if (e.ctrlKey && e.key === 'f') {
-                e.preventDefault();
-                searchRef.current?.focus();
-            }
-        };
-        window.addEventListener('keydown', handler);
-        return () => window.removeEventListener('keydown', handler);
     }, []);
 
     let sessionBtnStyle: React.CSSProperties;
@@ -106,74 +93,14 @@ export default function Topnav({
     const totalFailures = atsFailures.reduce((sum, f) => sum + f.fill_failed_count, 0);
 
     return (
-        <nav style={{
+        <div style={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            height: 56, padding: '0 20px',
+            height: 44, padding: '0 20px',
             background: 'var(--color-surface-container)',
             borderBottom: '1px solid var(--color-outline-variant)',
             position: 'relative',
+            flexShrink: 0,
         }}>
-            {/* Left: Wordmark + Search */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                <span style={{
-                    fontSize: 18,
-                    fontWeight: 500,
-                    color: 'var(--color-on-surface)',
-                    letterSpacing: '-0.02em'
-                }}>
-                    Notiapply
-                </span>
-
-                {/* Search Input */}
-                <div style={{ position: 'relative' }}>
-                    <input
-                        ref={searchRef}
-                        type="text"
-                        placeholder="Search by title, company, location, or source..."
-                        value={searchQuery}
-                        onChange={e => onSearchChange(e.target.value)}
-                        style={{
-                            width: 280,
-                            padding: '6px 12px 6px 32px',
-                            fontSize: 13,
-                            borderRadius: 20,
-                            border: '1px solid var(--color-outline-variant)',
-                            background: 'var(--color-surface-container-low)',
-                            color: 'var(--color-on-surface)',
-                            outline: 'none',
-                            transition: 'all 0.2s',
-                        }}
-                        onFocus={e => {
-                            e.currentTarget.style.borderColor = 'var(--color-primary)';
-                            e.currentTarget.style.background = 'var(--color-surface-container)';
-                        }}
-                        onBlur={e => {
-                            e.currentTarget.style.borderColor = 'var(--color-outline-variant)';
-                            e.currentTarget.style.background = 'var(--color-surface-container-low)';
-                        }}
-                    />
-                    <svg
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        style={{
-                            position: 'absolute',
-                            left: 10,
-                            top: '50%',
-                            transform: 'translateY(-50%)',
-                            color: 'var(--color-on-surface-variant)',
-                            pointerEvents: 'none',
-                        }}
-                    >
-                        <circle cx="11" cy="11" r="8" />
-                        <path d="m21 21-4.35-4.35" />
-                    </svg>
-                </div>
-            </div>
-
             {/* Center: Metrics Dashboard - Dynamically Centered */}
             <div style={{
                 position: 'absolute',
@@ -337,11 +264,6 @@ export default function Topnav({
                                 onClick={() => { onScrapeNow(); setMenuOpen(false); }}
                             />
                             <div style={{ height: 1, background: 'var(--color-outline-variant)', margin: '8px 0' }} />
-                            <MenuItem
-                                label="* Settings"
-                                sublabel="LLM, search, notifications"
-                                onClick={() => { onOpenSettings(); setMenuOpen(false); }}
-                            />
                             <MenuItem
                                 label="◫ ATS Watchlist"
                                 sublabel="Companies to poll directly"
@@ -514,7 +436,7 @@ export default function Topnav({
                     </div>
                 </MetricModal>
             )}
-        </nav>
+        </div>
     );
 }
 

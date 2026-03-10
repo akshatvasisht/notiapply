@@ -5,12 +5,36 @@ export type JobState =
     | 'filling' | 'fill-failed' | 'review-incomplete' | 'review-ready'
     | 'submitted' | 'rejected' | 'tracking';
 
+export type ContactState =
+    | 'identified' | 'drafted' | 'contacted' | 'replied' | 'interviewing' | 'rejected';
+
 export type JobSource =
     | 'jobspy-linkedin' | 'jobspy-indeed' | 'jobspy-glassdoor' | 'jobspy-ziprecruiter'
     | 'ats-greenhouse' | 'ats-lever' | 'ats-ashby'
     | 'github-simplify' | 'wellfound';
 
 export type PipelinePhase = 'scraping' | 'processing' | 'output';
+
+export interface Contact {
+    id: number;
+    name: string;
+    role: string | null;
+    company_name: string;
+    linkedin_url: string | null;
+    email: string | null;
+    drafted_message: string | null;
+    notes: string | null;
+    state: ContactState;
+    job_id: number | null;
+    scraped_company_id: number | null;
+    created_at: string;
+    // Enrichment fields (populated by n8n pipeline)
+    company_funding_stage: string | null;   // e.g. "Series C", "Public"
+    company_headcount_range: string | null; // e.g. "501–1,000 employees"
+    company_industry: string | null;        // e.g. "Artificial Intelligence"
+    linkedin_posts_summary: string | null;  // LLM summary of recent posts
+}
+
 
 export interface Job {
     id: number;
@@ -70,7 +94,6 @@ export interface PipelineModule {
 
 export interface UserConfig {
     github_token?: string;
-    decodo_proxy?: string;
     ntfy_topic?: string;
     cloudflare_email_domain?: string;
     application_email_catch_all?: string;
@@ -91,6 +114,13 @@ export interface UserConfig {
     llm_model?: string;
     setup_complete?: boolean;
     last_scrape_at?: string | null;
+    // CRM & Outreach settings
+    crm_message_tone?: string;
+    linkedin_cookie?: string;
+    smtp_host?: string;
+    smtp_port?: string;
+    // Data Management
+    archive_after_months?: number;
 }
 
 export interface ScrapedCompany {
@@ -114,18 +144,13 @@ export interface FillSession {
     error_log: string | null;
 }
 
-export interface SidecarEvent {
-    event: 'progress' | 'incomplete' | 'failed' | 'done';
-    application_id?: number;
-    state?: string;
-    ats?: string;
-    missing_fields?: string[];
-    reason?: string;
-    session_id?: string;
-    filled?: number;
-    incomplete?: number;
-    failed?: number;
-}
+/** Discriminated union for NDJSON events emitted by fill.js via stdout. */
+export type SidecarEvent =
+    | { event: 'preflight_failed'; errors: string[] }
+    | { event: 'progress'; application_id: number; state: string; ats: string }
+    | { event: 'incomplete'; application_id: number; ats: string; missing_fields: string[] }
+    | { event: 'failed'; application_id: number; ats: string; reason: string }
+    | { event: 'done'; session_id: string; filled: number; incomplete: number; failed: number };
 
 export interface ATSFailure {
     ats_platform: string;
@@ -163,6 +188,65 @@ export const COLUMN_LABELS: Record<BoardColumn, string> = {
     submitted: 'Submitted',
     archive: 'Archive',
 };
+
+export type ContactBoardColumn = 'identified' | 'drafted' | 'contacted' | 'replied' | 'rejected';
+
+export const CONTACT_COLUMN_STATES: Record<ContactBoardColumn, ContactState[]> = {
+    identified: ['identified'],
+    drafted: ['drafted'],
+    contacted: ['contacted'],
+    replied: ['replied', 'interviewing'],
+    rejected: ['rejected'],
+};
+
+export const CONTACT_COLUMN_LABELS: Record<ContactBoardColumn, string> = {
+    identified: 'Prospects',
+    drafted: 'Drafting',
+    contacted: 'Reached Out',
+    replied: 'Engaged',
+    rejected: 'Closed',
+};
+
+/**
+ * Channel tag styling for contact method chips — mirrors SOURCE_COLORS for jobs
+ * LinkedIn = blue-ish, Email = teal-ish, None = neutral
+ */
+export const CONTACT_CHANNEL_COLORS = {
+    linkedin: { text: '#0077B5', bg: '#E8F4FD' },
+    email: { text: 'var(--color-secondary)', bg: 'var(--color-secondary-container)' },
+};
+
+/** Semantic color mapping for contact states — parallels SOURCE_COLORS for jobs */
+export const CONTACT_STATE_COLORS: Record<ContactState, { text: string; bg: string }> = {
+    identified: { text: 'var(--color-text-tertiary)', bg: 'var(--color-surface-container)' },
+    drafted: { text: 'var(--color-primary)', bg: 'var(--color-primary-container)' },
+    contacted: { text: 'var(--color-warning)', bg: 'var(--color-warning-container)' },
+    replied: { text: 'var(--color-success)', bg: 'var(--color-success-container)' },
+    interviewing: { text: 'var(--color-success)', bg: 'var(--color-success-container)' },
+    rejected: { text: 'var(--color-text-tertiary)', bg: 'var(--color-surface-container)' },
+};
+
+export const CONTACT_STATE_LABELS: Record<ContactState, string> = {
+    identified: 'Identified',
+    drafted: 'Drafted',
+    contacted: 'Contacted',
+    replied: 'Replied',
+    interviewing: 'Interviewing',
+    rejected: 'Rejected',
+};
+
+/** Card left border colour based on contact state */
+export function getContactBorderColor(state: ContactState): string {
+    switch (state) {
+        case 'drafted': return 'var(--color-primary)';
+        case 'contacted': return 'var(--color-warning)';
+        case 'replied':
+        case 'interviewing': return 'var(--color-success)';
+        case 'identified':
+        case 'rejected':
+        default: return 'transparent';
+    }
+}
 
 /** Source tag colour mapping
  *

@@ -1,4 +1,7 @@
-jobspy
-requests
-playwright
+instructor
+pydantic
+crawl4ai
 psycopg2-binary
+openai
+scrapling
+python-dotenv

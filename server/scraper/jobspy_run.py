@@ -28,9 +28,11 @@ def run(db_url: str, module_config: dict):
 
     search_terms = config.get("search_terms", ["software engineer"])
     locations = config.get("locations", ["Remote"])
-    proxy = config.get("decodo_proxy")
 
-    # Module-level config overrides
+    # No proxy required: JobSpy operates under typical single-user request volumes
+    # Wellfound (Tier 4) bypasses Cloudflare via Scrapling+Camoufox fingerprint spoofing,
+    # not a residential proxy. JobSpy's LinkedIn/Indeed scraping does not require a proxy
+    # at the volumes a single applicant generates.
     sources = module_config.get("sources", ["linkedin", "indeed", "glassdoor", "zip_recruiter"])
     results_per_source = module_config.get("results_per_source", 50)
 
@@ -45,7 +47,6 @@ def run(db_url: str, module_config: dict):
                     search_term=term,
                     location=loc,
                     results_wanted=results_per_source,
-                    proxy=f"http://{proxy}" if proxy else None,
                 )
 
                 for _, row in results.iterrows():

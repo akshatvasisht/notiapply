@@ -5,6 +5,7 @@ import type { Job } from '@/lib/types';
 import { getCardBorderColor, SOURCE_LABELS, SOURCE_COLORS } from '@/lib/types';
 import { timeAgo, formatSalary } from '@/lib/utils';
 import CompanyAvatar from '../common/CompanyAvatar';
+import BaseCard from '../common/kanban/BaseCard';
 
 interface JobCardProps {
     job: Job;
@@ -13,7 +14,6 @@ interface JobCardProps {
 }
 
 export default function JobCard({ job, selected = false, onClick }: JobCardProps) {
-    const [isHovered, setIsHovered] = useState(false);
     const borderColor = getCardBorderColor(job.state);
     const sourceColors = SOURCE_COLORS[job.source] ?? {
         text: 'var(--color-on-surface-variant)',
@@ -23,23 +23,10 @@ export default function JobCard({ job, selected = false, onClick }: JobCardProps
     const salary = formatSalary(job.salary_min, job.salary_max);
 
     return (
-        <div
+        <BaseCard
+            selected={selected}
             onClick={onClick}
-            onMouseEnter={() => setIsHovered(true)}
-            onMouseLeave={() => setIsHovered(false)}
-            style={{
-                background: selected ? 'var(--color-primary-container)' : 'var(--color-surface-container)',
-                border: selected ? '2px solid var(--color-primary)' : 'none',
-                borderLeft: selected ? `4px solid ${borderColor}` : `4px solid ${borderColor}`,
-                borderRadius: 16,
-                padding: selected ? '12px 14px' : '14px 16px',
-                cursor: 'pointer',
-                boxShadow: isHovered ? 'var(--elevation-2)' : 'var(--elevation-1)',
-                transform: isHovered ? 'translateY(-2px)' : 'none',
-                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                animation: 'fadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
-                position: 'relative',
-            }}
+            borderColor={borderColor}
         >
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
                 <CompanyAvatar name={job.company} logoUrl={job.company_logo_url} size={32} />
@@ -100,6 +87,6 @@ export default function JobCard({ job, selected = false, onClick }: JobCardProps
                     </div>
                 </div>
             </div>
-        </div>
+        </BaseCard>
     );
 }

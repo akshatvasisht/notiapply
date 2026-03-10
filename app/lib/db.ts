@@ -5,7 +5,7 @@
  */
 
 import { Pool } from 'pg';
-import type { Job, Application, PipelineModule, UserConfig, ScrapedCompany, ATSFailure, AutomationStats, SourceCoverage } from './types';
+import type { Job, Application, PipelineModule, UserConfig, ScrapedCompany, ATSFailure, AutomationStats, SourceCoverage, Contact } from './types';
 
 let pool: Pool | null = null;
 
@@ -34,6 +34,17 @@ export async function updateUserConfig(config: UserConfig): Promise<void> {
         'UPDATE user_config SET config = $1, updated_at = NOW() WHERE id = 1',
         [JSON.stringify(config)]
     );
+}
+
+// ─── Contacts ──────────────────────────────────────────────────────────────────
+
+export async function getContacts(): Promise<Contact[]> {
+    const { rows } = await getPool().query('SELECT * FROM contacts ORDER BY created_at DESC');
+    return rows;
+}
+
+export async function updateContactState(id: number, state: string): Promise<void> {
+    await getPool().query('UPDATE contacts SET state = $1 WHERE id = $2', [state, id]);
 }
 
 // ─── Jobs ──────────────────────────────────────────────────────────────────────

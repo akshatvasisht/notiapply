@@ -17,9 +17,15 @@ import CompaniesPage from '../settings/CompaniesPage';
 import ShortcutsModal from '../help/ShortcutsModal';
 import Toast, { type ToastType } from '../common/Toast';
 
+
 type View = 'board' | 'settings' | 'companies';
 
-export default function Board() {
+export interface BoardProps {
+    searchQuery?: string;
+    onSearchChange?: (q: string) => void;
+}
+
+export default function Board({ searchQuery: externalSearch, onSearchChange: onExternalSearchChange }: BoardProps) {
     const [view, setView] = useState<View>('board');
     const [jobs, setJobs] = useState<Job[]>([]);
     const [focusedJob, setFocusedJob] = useState<Job | null>(null);
@@ -29,7 +35,10 @@ export default function Board() {
     const [scraping, setScraping] = useState(false);
     const [useMockData, setUseMockData] = useState(false);
     const [showShortcuts, setShowShortcuts] = useState(false);
-    const [searchQuery, setSearchQuery] = useState('');
+    const [_internalSearch, _setInternalSearch] = useState('');
+    // Use externally-controlled search if provided (from app shell), otherwise internal
+    const searchQuery = externalSearch ?? _internalSearch;
+    const setSearchQuery = onExternalSearchChange ?? _setInternalSearch;
     const [selectedJobIds, setSelectedJobIds] = useState<Set<number>>(new Set());
     const [toastMessage, setToastMessage] = useState<string | null>(null);
     const [toastType] = useState<ToastType>('info');
@@ -170,7 +179,7 @@ export default function Board() {
     if (view === 'companies') return <CompaniesPage onBack={() => setView('board')} />;
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
             <TopnavNew
                 queuedCount={queuedCount}
                 atsFailures={atsFailures}
@@ -181,12 +190,9 @@ export default function Board() {
                 sessionRunning={sessionRunning}
                 sessionResult={sessionResult}
                 scraping={scraping}
-                searchQuery={searchQuery}
-                onSearchChange={setSearchQuery}
                 onClearSelection={() => setSelectedJobIds(new Set())}
                 onStartSession={handleStartSession}
                 onScrapeNow={handleScrapeNow}
-                onOpenSettings={() => setView('settings')}
                 onOpenCompanies={() => setView('companies')}
             />
 

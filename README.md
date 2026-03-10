@@ -1,9 +1,9 @@
 <p align="center">
   <img 
-    width="128" 
-    height="128" 
+    width="200" 
+    height="200" 
     alt="Notiapply Logo" 
-    src="docs/images/logo.png" 
+    src="docs/images/logo.svg" 
   />
 </p>
 

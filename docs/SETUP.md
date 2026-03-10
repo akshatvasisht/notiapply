@@ -13,7 +13,7 @@ Notiapply consists of three localized domains: the scraping fleet (usually headl
 
 ## Deployment Options
 
-Notiapply can execute entirely on your local machine, or run a "split brain" architecture where the scraping database lives on a remote server (e.g. an Oracle Free Tier ARM instance) and the Tauri desktop app connects to it remotely.
+Notiapply can execute entirely on your local machine, or run a "split brain" architecture where the entire backend pipeline (PostgreSQL database, Python scraping fleet, and **n8n orchestrator**) lives on a 24/7 remote server (e.g. an Oracle Free Tier ARM instance or AWS EC2) and the Tauri desktop app connects to it remotely.
 
 ### Option 1: The Idempotent Bootstrap (Recommended for Remote DB/Scraper)
 

@@ -11,7 +11,7 @@
  * Equity fields only populated for startup sources (wellfound) and select ATS postings.
  */
 
-import type { Job, PipelineModule, UserConfig, ScrapedCompany } from './types';
+import type { Job, PipelineModule, UserConfig, ScrapedCompany, Contact } from './types';
 
 export const MOCK_JOBS: Job[] = [
     // Incoming (discovered)
@@ -65,167 +65,95 @@ We're looking for a **Software Engineer** to join our Developer Experience team.
         state: 'discovered',
         company_logo_url: null,
     },
+
+    // Ready (queued)
     {
         id: 2,
         source: 'ats-greenhouse',
         title: 'Backend Engineer',
-        company: 'Linear',
-        location: 'San Francisco, CA',
-        url: 'https://linear.app/careers',
-        description_raw: 'Help us build the best issue tracking software...',
-        salary_min: 160000,
-        salary_max: 220000,
-        equity_min: 0.1,
-        equity_max: 0.5,
-        company_role_location_hash: 'linear-backend-sf',
-        discovered_at: new Date(Date.now() - 5 * 60 * 60000).toISOString(), // 5h ago
-        docs_fail_reason: null,
-        state: 'discovered',
-        company_logo_url: null,
-    },
-    {
-        id: 3,
-        source: 'github-simplify',
-        title: 'Full Stack Engineer',
-        company: 'Anthropic',
-        location: 'San Francisco, CA',
-        url: 'https://anthropic.com/careers',
-        description_raw: 'Build AI safety systems and interfaces...',
-        salary_min: 180000,
-        salary_max: 250000,
-        equity_min: null,
-        equity_max: null,
-        company_role_location_hash: 'anthropic-fullstack-sf',
-        discovered_at: new Date(Date.now() - 8 * 60 * 60000).toISOString(), // 8h ago
-        docs_fail_reason: null,
-        state: 'discovered',
-        company_logo_url: null,
-    },
-
-    // Ready (queued)
-    {
-        id: 4,
-        source: 'jobspy-indeed',
-        title: 'Backend Engineer',
         company: 'Stripe',
         location: 'Remote',
         url: 'https://stripe.com/jobs',
-        description_raw: 'Build payment infrastructure for the internet...',
-        salary_min: 150000,
+        description_raw: `## About Stripe
+
+Stripe is a financial infrastructure platform for the web. Millions of companies—from the world's largest enterprises to the most ambitious startups—use Stripe to accept payments, grow their revenue, and accelerate new business opportunities.
+
+### The Role
+
+We're looking for a **Backend Engineer** to help us build the future of global commerce. You'll work on distributed systems that handle billions of dollars in transactions while maintaining five-nines of availability.
+
+### What you'll do
+
+- Design, build, and maintain the complex financial infrastructure that powers Stripe
+- Scale our systems to handle ever-increasing transaction volumes
+- Build APIs that developers love and rely on
+- Collaborate across engineering teams to ship high-impact features
+- Participate in an on-call rotation to ensure the reliability of our mission-critical services
+
+### Who you are
+
+- You have a strong background in distributed systems and API design
+- You have 4+ years of professional software engineering experience
+- You are comfortable working in a fast-paced environment and dealing with ambiguity
+- You have a track record of shipping high-quality, reliable software
+- You are proficient in languages like Java, Ruby, or Go
+
+### Benefits
+
+- Comprehensive medical, dental, and vision coverage
+- Mental health support and resources
+- Generous parental leave
+- Retirement savings plan with company match
+- Charitable contribution matching`,
+        salary_min: 160000,
         salary_max: 220000,
         equity_min: null,
         equity_max: null,
         company_role_location_hash: 'stripe-backend-remote',
-        discovered_at: new Date(Date.now() - 1 * 24 * 60 * 60000).toISOString(), // 1d ago
-        docs_fail_reason: null,
-        state: 'queued',
-        company_logo_url: null,
-    },
-    {
-        id: 5,
-        source: 'ats-lever',
-        title: 'Software Engineer',
-        company: 'Figma',
-        location: 'San Francisco, CA',
-        url: 'https://figma.com/careers',
-        description_raw: 'Help designers and developers collaborate...',
-        salary_min: 170000,
-        salary_max: 240000,
-        equity_min: 0.1,
-        equity_max: 0.3,
-        company_role_location_hash: 'figma-swe-sf',
-        discovered_at: new Date(Date.now() - 1 * 24 * 60 * 60000).toISOString(),
-        docs_fail_reason: null,
-        state: 'queued',
-        company_logo_url: null,
-    },
-    {
-        id: 6,
-        source: 'wellfound',
-        title: 'Senior Backend Engineer',
-        company: 'Notion',
-        location: 'New York, NY',
-        url: 'https://notion.so/careers',
-        description_raw: `## About Notion
-
-We're on a mission to make toolmaking ubiquitous. Notion is a workspace that adapts to your needs. It's as minimal or as powerful as you need it to be. Millions of people use Notion every day — from founders running their companies to students organizing their lives.
-
-## The Role
-
-As a **Senior Backend Engineer**, you'll be building the infrastructure and APIs that power Notion's collaborative workspace. You'll work on systems that need to handle millions of concurrent users while maintaining Notion's signature speed and reliability.
-
-### What You'll Build
-
-- Real-time collaboration infrastructure handling millions of concurrent edits
-- Scalable APIs serving hundreds of millions of requests per day
-- Data models and systems for our block-based editor
-- Infrastructure for AI-powered features and integrations
-- Performance optimizations across our entire stack
-
-### What We're Looking For
-
-- 5+ years of backend engineering experience at scale
-- Deep expertise in distributed systems and databases
-- Experience with real-time systems (WebSockets, operational transforms, CRDTs)
-- Strong CS fundamentals and system design skills
-- Product mindset and empathy for user experience
-- Experience with Node.js, PostgreSQL, Redis is a plus
-
-### Tech Stack
-
-Node.js (TypeScript), PostgreSQL, Redis, AWS, Kubernetes, React
-
-### Why Notion?
-
-- Competitive salary + **significant equity (0.08% - 0.25%)**
-- Health, dental, vision insurance (100% covered for employees)
-- 5% 401k match
-- Hybrid work with 3 days/week in our NYC office
-- Generous PTO and company-wide shutdowns
-- $3000/year learning & development budget
-- Catered lunches and snacks in office
-
-### Our Values
-
-We hire based on these values: **care, craft, and championship**. We want people who care about users, take pride in their craft, and champion their teammates.`,
-        salary_min: 140000,
-        salary_max: 180000,
-        equity_min: 0.08,
-        equity_max: 0.25,
-        company_role_location_hash: 'notion-backend-ny',
-        discovered_at: new Date(Date.now() - 2 * 24 * 60 * 60000).toISOString(), // 2d ago
-        docs_fail_reason: null,
-        state: 'queued',
-        company_logo_url: null,
-    },
-    {
-        id: 7,
-        source: 'jobspy-glassdoor',
-        title: 'Full Stack Developer',
-        company: 'Datadog',
-        location: 'Remote',
-        url: 'https://datadog.com/careers',
-        description_raw: 'Build monitoring and analytics platform...',
-        salary_min: 140000,
-        salary_max: 190000,
-        equity_min: null,
-        equity_max: null,
-        company_role_location_hash: 'datadog-fullstack-remote',
-        discovered_at: new Date(Date.now() - 2 * 24 * 60 * 60000).toISOString(),
+        discovered_at: new Date(Date.now() - 5 * 60 * 60000).toISOString(), // 5h ago
         docs_fail_reason: null,
         state: 'queued',
         company_logo_url: null,
     },
 
-    // Attention (review-incomplete, docs-failed, fill-failed)
+    // Attention (review-incomplete)
     {
-        id: 8,
+        id: 3,
         source: 'ats-ashby',
         title: 'Frontend Engineer',
         company: 'Retool',
         location: 'San Francisco, CA',
         url: 'https://retool.com/careers',
-        description_raw: 'Build internal tools platform...',
+        description_raw: `## About Retool
+
+Retool is the fast way to build internal tools. Visually design apps that interface with any database or API. Switch to code nearly anywhere to customize how your apps look and work. With Retool, you can ship more tools and move your business forward—all without starting from scratch.
+
+### The Opportunity
+
+As a **Frontend Engineer** at Retool, you'll be responsible for building the visual editor and the core components that our customers use to build their applications. This is a high-leverage role where your work will directly impact the productivity of thousands of developers.
+
+### What You'll Do
+
+- Architect and build complex, state-heavy React components for the Retool editor
+- Optimize frontend performance for massive JSON schemas and real-time data binding
+- Work closely with designers to implement intuitive and powerful UI patterns
+- Help scale our component library and design system
+
+### Requirements
+
+- 5+ years of experience building complex frontend applications
+- Expert-level knowledge of React and TypeScript
+- Deep understanding of browser performance and profiling tools
+- Experience with state management libraries (Redux, MobX, etc.)
+- Strong product intuition and attention to detail
+
+### Why Retool?
+
+- Work on a product that you, as a developer, would use every day
+- Join a fast-growing company at a pivotal stage
+- Collaborative and transparent culture
+- Health, dental, and vision insurance
+- 401(k) and equity packages`,
         salary_min: 150000,
         salary_max: 200000,
         equity_min: 0.1,
@@ -236,46 +164,10 @@ We hire based on these values: **care, craft, and championship**. We want people
         state: 'review-incomplete',
         company_logo_url: null,
     },
-    {
-        id: 9,
-        source: 'jobspy-ziprecruiter',
-        title: 'DevOps Engineer',
-        company: 'HashiCorp',
-        location: 'Remote',
-        url: 'https://hashicorp.com/careers',
-        description_raw: 'Manage infrastructure automation tools...',
-        salary_min: null,
-        salary_max: null,
-        equity_min: null,
-        equity_max: null,
-        company_role_location_hash: 'hashicorp-devops-remote',
-        discovered_at: new Date(Date.now() - 4 * 24 * 60 * 60000).toISOString(),
-        docs_fail_reason: 'Failed to parse PDF',
-        state: 'docs-failed',
-        company_logo_url: null,
-    },
-    {
-        id: 10,
-        source: 'ats-greenhouse',
-        title: 'Platform Engineer',
-        company: 'Cloudflare',
-        location: 'Austin, TX',
-        url: 'https://cloudflare.com/careers',
-        description_raw: 'Build edge computing platform...',
-        salary_min: 160000,
-        salary_max: 220000,
-        equity_min: null,
-        equity_max: null,
-        company_role_location_hash: 'cloudflare-platform-austin',
-        discovered_at: new Date(Date.now() - 4 * 24 * 60 * 60000).toISOString(),
-        docs_fail_reason: null,
-        state: 'fill-failed',
-        company_logo_url: null,
-    },
 
-    // Submitted (review-ready, submitted, tracking)
+    // Submitted (review-ready)
     {
-        id: 11,
+        id: 4,
         source: 'jobspy-linkedin',
         title: 'Machine Learning Engineer',
         company: 'OpenAI',
@@ -295,9 +187,7 @@ We're seeking **Machine Learning Engineers** to help build and scale the next ge
 - Design and implement novel architectures for improved model capabilities
 - Develop evaluation frameworks to measure model performance and safety
 - Optimize training infrastructure and reduce computational costs
-- Collaborate with research scientists to implement new algorithms
 - Deploy models to production at massive scale
-- Contribute to AI alignment and safety research
 
 ### Qualifications
 
@@ -305,33 +195,15 @@ We're seeking **Machine Learning Engineers** to help build and scale the next ge
 - 3+ years of experience training large-scale neural networks
 - Strong fundamentals in deep learning, optimization, and statistics
 - Proficiency in Python and ML frameworks (PyTorch, JAX, TensorFlow)
-- Experience with distributed training and large-scale systems
-- Track record of publications or significant ML projects
-- Passion for AI safety and beneficial AI development
+- Track record of significant ML projects
 
-### Nice to Have
+### Benefits
 
-- Experience with transformer architectures and LLMs
-- Background in reinforcement learning from human feedback (RLHF)
-- Contributions to open-source ML projects
-- Experience deploying ML models at scale
-
-### What We Offer
-
-- Highly competitive compensation **($200k-$300k base + equity)**
+- Highly competitive compensation ($200k-$300k base + equity)
 - Comprehensive health, dental, and vision coverage
 - Unlimited PTO + quarterly company-wide reset weeks
-- $5,000/year in professional development
 - Daily lunch and dinner in our SF office
-- Relocation assistance if moving to San Francisco
-- Work on the most advanced AI systems in the world
-- Collaborate with leading researchers and engineers
-
----
-
-OpenAI is committed to diversity and inclusion. We're an equal opportunity employer and value diverse perspectives in building beneficial AGI.
-
-**Note:** This role requires working in-person from our San Francisco office 4-5 days per week.`,
+- Relocation assistance if moving to San Francisco`,
         salary_min: 200000,
         salary_max: 300000,
         equity_min: null,
@@ -342,75 +214,50 @@ OpenAI is committed to diversity and inclusion. We're an equal opportunity emplo
         state: 'review-ready',
         company_logo_url: null,
     },
-    {
-        id: 12,
-        source: 'ats-lever',
-        title: 'Software Engineer',
-        company: 'Ramp',
-        location: 'New York, NY',
-        url: 'https://ramp.com/careers',
-        description_raw: 'Build corporate card and expense management...',
-        salary_min: 170000,
-        salary_max: 230000,
-        equity_min: 0.1,
-        equity_max: 0.4,
-        company_role_location_hash: 'ramp-swe-ny',
-        discovered_at: new Date(Date.now() - 6 * 24 * 60 * 60000).toISOString(),
-        docs_fail_reason: null,
-        state: 'submitted',
-        company_logo_url: null,
-    },
-    {
-        id: 13,
-        source: 'github-simplify',
-        title: 'New Grad Software Engineer',
-        company: 'Cursor',
-        location: 'Remote',
-        url: 'https://cursor.com/careers',
-        description_raw: 'Build AI-powered code editor. New grad position from SimplifyJobs community list...',
-        salary_min: 120000,
-        salary_max: 160000,
-        equity_min: null,
-        equity_max: null,
-        company_role_location_hash: 'cursor-backend-remote',
-        discovered_at: new Date(Date.now() - 7 * 24 * 60 * 60000).toISOString(),
-        docs_fail_reason: null,
-        state: 'tracking',
-        company_logo_url: null,
-    },
 
-    // Archive (filtered-out, rejected)
+    // Archive (rejected)
     {
-        id: 14,
-        source: 'wellfound',
-        title: 'Founding Engineer',
-        company: 'Scale AI',
+        id: 5,
+        source: 'ats-greenhouse',
+        title: 'Product Engineer',
+        company: 'Linear',
         location: 'San Francisco, CA',
-        url: 'https://scale.com/careers',
-        description_raw: 'Join as a founding engineer building data labeling platform for AI...',
-        salary_min: 140000,
-        salary_max: 180000,
-        equity_min: 0.5,
-        equity_max: 2.0,
-        company_role_location_hash: 'scale-founding-sf',
-        discovered_at: new Date(Date.now() - 8 * 24 * 60 * 60000).toISOString(),
-        docs_fail_reason: null,
-        state: 'filtered-out',
-        company_logo_url: null,
-    },
-    {
-        id: 15,
-        source: 'jobspy-indeed',
-        title: 'Principal Engineer',
-        company: 'Databricks',
-        location: 'Remote',
-        url: 'https://databricks.com/careers',
-        description_raw: 'Architect large-scale data systems...',
-        salary_min: null,
-        salary_max: null,
-        equity_min: null,
-        equity_max: null,
-        company_role_location_hash: 'databricks-principal-remote',
+        url: 'https://linear.app/careers',
+        description_raw: `## About Linear
+
+Linear is the new standard for modern software development. It's built for speed, performance, and attention to detail. We believe that software should be beautiful, fast, and easy to use. Our mission is to build the tool that helps teams build better products.
+
+### The Role
+
+As a **Product Engineer** at Linear, you'll be building the features that help teams manage their workflow with surgical precision. You'll work on everything from our real-time synchronization engine to our high-performance UI components.
+
+### What You'll Build
+
+- New features for the Linear product that help teams collaborate more effectively
+- Performance optimizations that keep Linear "Linear fast"
+- Integrations with other tools in the modern software stack
+- Tooling and infrastructure that helps us move faster as a team
+
+### Who You Are
+
+- You have a deep love for craft and attention to detail
+- You are a full-stack engineer who is comfortable working across the entire stack
+- You have 5+ years of experience building high-quality software
+- You are proficient in TypeScript, React, and GraphQL
+- You have a strong product mindset and empathy for the user
+
+### Benefits
+
+- Top-tier compensation and equity
+- Remote-friendly culture with offsites
+- Health, dental, and vision insurance
+- Flexible time off
+- Whatever gear you need to do your best work`,
+        salary_min: 160000,
+        salary_max: 220000,
+        equity_min: 0.1,
+        equity_max: 0.5,
+        company_role_location_hash: 'linear-product-sf',
         discovered_at: new Date(Date.now() - 9 * 24 * 60 * 60000).toISOString(),
         docs_fail_reason: null,
         state: 'rejected',
@@ -424,13 +271,12 @@ export const MOCK_CONFIG: UserConfig = {
     llm_model: 'gemini-1.5-flash',
     ntfy_topic: 'notiapply-demo',
     github_token: '••••••••••••••••',
-    decodo_proxy: 'user:pass@gate.decodo.com:7000',
     cloudflare_email_domain: 'example.com',
     application_email_catch_all: 'jobs+{hash}@example.com',
     ats_shared_password: '••••••••',
     search_terms: ['software engineer', 'backend engineer', 'full stack developer'],
     locations: ['Remote', 'San Francisco', 'New York'],
-    github_repos: ['SimplifyJobs/New-Grad-Positions', 'pittcsc/Summer2025-Internships'],
+    github_repos: ['SimplifyJobs/New-Grad-Positions'],
     filter: {
         seniority: ['entry', 'mid'],
         new_grad_only: false,
@@ -461,21 +307,6 @@ export const MOCK_MODULES: PipelineModule[] = [
     },
     {
         id: 2,
-        key: 'scrape-indeed',
-        name: 'Indeed (JobSpy)',
-        description: 'Scrape job postings from Indeed via JobSpy',
-        phase: 'scraping',
-        execution_order: 20,
-        enabled: true,
-        is_builtin: true,
-        n8n_workflow_id: 'scrape_indeed',
-        config_schema: null,
-        module_config: {},
-        dependencies: [],
-        created_at: new Date().toISOString(),
-    },
-    {
-        id: 3,
         key: 'scrape-ats',
         name: 'ATS Direct',
         description: 'Scrape company career pages directly (Greenhouse, Lever, Ashby)',
@@ -490,37 +321,7 @@ export const MOCK_MODULES: PipelineModule[] = [
         created_at: new Date().toISOString(),
     },
     {
-        id: 4,
-        key: 'scrape-github',
-        name: 'GitHub Repos',
-        description: 'Pull job postings from curated GitHub repos',
-        phase: 'scraping',
-        execution_order: 40,
-        enabled: false,
-        is_builtin: true,
-        n8n_workflow_id: 'scrape_github',
-        config_schema: null,
-        module_config: {},
-        dependencies: [],
-        created_at: new Date().toISOString(),
-    },
-    {
-        id: 5,
-        key: 'filter-jobs',
-        name: 'Job Filter',
-        description: 'Filter jobs by keywords, seniority, location, etc.',
-        phase: 'processing',
-        execution_order: 10,
-        enabled: true,
-        is_builtin: true,
-        n8n_workflow_id: 'filter_jobs',
-        config_schema: null,
-        module_config: {},
-        dependencies: [],
-        created_at: new Date().toISOString(),
-    },
-    {
-        id: 6,
+        id: 3,
         key: 'generate-docs',
         name: 'Generate Resume/Cover',
         description: 'AI-generate tailored resume and cover letter LaTeX',
@@ -529,36 +330,6 @@ export const MOCK_MODULES: PipelineModule[] = [
         enabled: true,
         is_builtin: true,
         n8n_workflow_id: 'generate_docs',
-        config_schema: null,
-        module_config: {},
-        dependencies: ['filter-jobs'],
-        created_at: new Date().toISOString(),
-    },
-    {
-        id: 7,
-        key: 'compile-pdfs',
-        name: 'Compile PDFs',
-        description: 'Compile LaTeX to PDF using Tectonic',
-        phase: 'processing',
-        execution_order: 30,
-        enabled: true,
-        is_builtin: true,
-        n8n_workflow_id: 'compile_pdfs',
-        config_schema: null,
-        module_config: {},
-        dependencies: ['generate-docs'],
-        created_at: new Date().toISOString(),
-    },
-    {
-        id: 8,
-        key: 'notify',
-        name: 'Push Notification',
-        description: 'Send ntfy.sh notification when pipeline completes',
-        phase: 'output',
-        execution_order: 10,
-        enabled: true,
-        is_builtin: true,
-        n8n_workflow_id: 'notify',
         config_schema: null,
         module_config: {},
         dependencies: [],
@@ -583,12 +354,115 @@ export const MOCK_COMPANIES: ScrapedCompany[] = [
         active: true,
         added_at: new Date(Date.now() - 15 * 24 * 60 * 60000).toISOString(),
     },
+];
+
+export const MOCK_CONTACTS: Contact[] = [
+    // Identified (Prospects)
+    {
+        id: 1,
+        name: 'Patrick Collison',
+        role: 'CEO',
+        company_name: 'Stripe',
+        linkedin_url: 'https://linkedin.com/in/pcollison',
+        email: 'patrick@stripe.com',
+        drafted_message: null,
+        notes: 'Targeting the financial infrastructure team. Patrick frequently writes about the "Stripe style" of engineering—precision and reliability are key hooks for this outreach.',
+        state: 'identified',
+        job_id: 2,
+        scraped_company_id: 1,
+        created_at: new Date(Date.now() - 1 * 24 * 60 * 60000).toISOString(),
+        company_funding_stage: 'Public',
+        company_headcount_range: '5,001–10,000 employees',
+        company_industry: 'Financial Services',
+        linkedin_posts_summary: 'Recent posts focus on the intersection of engineering craft and global economic infrastructure. Deep dives into API reliability and "Stripe style" documentation.',
+    },
+
+    // Drafted (Drafting)
+    {
+        id: 2,
+        name: 'Karri Saarinen',
+        role: 'CEO & Co-founder',
+        company_name: 'Linear',
+        linkedin_url: 'https://linkedin.com/in/ksaarinen',
+        email: 'karri@linear.app',
+        drafted_message: `Hi Karri,
+
+The attention to detail in Linear's UI is genuinely inspiring—it's rare to see that level of craft in modern software. I'm a product engineer applying to Linear, and I've spent considerable time studying how your team handles real-time synchronization and the "optimistic UI" patterns.
+
+I'd love to share my experience building high-performance frontend systems and discuss how I could contribute to Linear's mission. Do you have 10 minutes for a brief chat this week?`,
+        notes: 'Drafting a highly personalized note focused on their design philosophy and UI craft.',
+        state: 'drafted',
+        job_id: 5,
+        scraped_company_id: null,
+        created_at: new Date(Date.now() - 18 * 60 * 60000).toISOString(),
+        company_funding_stage: 'Series B',
+        company_headcount_range: '51–200 employees',
+        company_industry: 'Software Development',
+        linkedin_posts_summary: 'Writing extensively about the "Linear Method"—quality over speed, native-feeling performance, and why focus is the most important trait for engineering teams.',
+    },
+
+    // Contacted (Reached Out)
     {
         id: 3,
-        name: 'Linear',
-        ats_platform: 'ashby',
-        ats_slug: 'linear',
-        active: true,
-        added_at: new Date(Date.now() - 20 * 24 * 60 * 60000).toISOString(),
+        name: 'Dario Amodei',
+        role: 'CEO',
+        company_name: 'Anthropic',
+        linkedin_url: 'https://linkedin.com/in/dario-amodei',
+        email: 'dario@anthropic.com',
+        drafted_message: null,
+        notes: 'Sent a note regarding their recent Constitutional AI research paper and how my background in distributed systems could help scale their training clusters.',
+        state: 'contacted',
+        job_id: null,
+        scraped_company_id: null,
+        created_at: new Date(Date.now() - 3 * 24 * 60 * 60000).toISOString(),
+        company_funding_stage: 'Series D',
+        company_headcount_range: '501–1,000 employees',
+        company_industry: 'Artificial Intelligence',
+        linkedin_posts_summary: 'Shared thoughts on "Constitutional AI" and safety-first scaling laws. Discussing the technical challenges of RLHF at massive scale.',
     },
+
+    // Replied (Engaged)
+    {
+        id: 4,
+        name: 'Guillermo Rauch',
+        role: 'CEO',
+        company_name: 'Vercel',
+        linkedin_url: 'https://linkedin.com/in/rauchg',
+        email: 'guillermo@vercel.com',
+        drafted_message: `Hi Guillermo,
+
+Huge fan of the latest Next.js 15 updates—the performance gains in the dev server are impressive. As someone who has been building with the Vercel stack for years, I'm particularly excited about the direction you're taking with Partial Prerendering.
+
+I've just applied for the SWE role on the DX team. I'd love to learn more about how Vercel plans to further bridge the gap between development and production.`,
+        notes: 'Guillermo replied! He mentioned they are specifically looking for people with deep React Server Components knowledge. Setting up a technical interview with the DX team.',
+        state: 'replied',
+        job_id: 1,
+        scraped_company_id: 2,
+        created_at: new Date(Date.now() - 2 * 24 * 60 * 60000).toISOString(),
+        company_funding_stage: 'Series E',
+        company_headcount_range: '1,001–5,000 employees',
+        company_industry: 'Cloud Computing',
+        linkedin_posts_summary: 'Promoting the benefits of Partial Prerendering and the importance of DX in frontend stacks. Frequently sharing performance metrics from major Next.js deployments.',
+    },
+
+    // Interviewing (Engaged)
+    {
+        id: 5,
+        name: 'Sam Altman',
+        role: 'CEO',
+        company_name: 'OpenAI',
+        linkedin_url: 'https://linkedin.com/in/samaltman',
+        email: 'sam@openai.com',
+        drafted_message: null,
+        notes: 'Currently in the late-stage interview rounds for the Machine Learning Engineer position. Discussion has been focused on latency optimizations for inference at scale.',
+        state: 'interviewing',
+        job_id: 4,
+        scraped_company_id: null,
+        created_at: new Date(Date.now() - 7 * 24 * 60 * 60000).toISOString(),
+        company_funding_stage: 'Late Stage',
+        company_headcount_range: '1,001–5,000 employees',
+        company_industry: 'Artificial Intelligence',
+        linkedin_posts_summary: 'Focused on the societal impact of AGI and the roadmap for GPT-5. Recently posted about the importance of alignment in frontier models.',
+    },
+
 ];

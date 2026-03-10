@@ -2,7 +2,6 @@
 
 This document details the architectural layout, core components, and data lifecycle of Notiapply, an autonomous job application system. Notiapply operates as a coordinated monorepo combining a Tauri-based desktop application, a headless automated browser sidecar, a Python scraping fleet, and a PostgreSQL database.
 
----
 
 ## Glossary of Terms
 
@@ -13,7 +12,7 @@ This document details the architectural layout, core components, and data lifecy
   - **Tier 2**: Direct ATS JSON ingest (Greenhouse, Lever, Ashby).
   - **Tier 3**: GitHub Markdown table parsing.
   - **Tier 4**: Complex JS-rendered state blobs (Wellfound via CF-Clearance).
-- **Decodo**: The Pay-As-You-Go residential proxy network used to prevent IP-bans during Tier 1 and Tier 4 discovery.
+- **Scrapling + Camoufox**: The browser-fingerprint spoofing layer used by Tier 4 (Wellfound) to transparently bypass Cloudflare without a proxy or paid service.
 - **n8n Orchestrator**: The workflow engine responsible for handling incoming webhook triggers, executing the Python scrapers, and inserting structured results into the Postgres database.
 
 ---
@@ -26,11 +25,20 @@ This document details the architectural layout, core components, and data lifecy
 | **Desktop Shell** | **Tauri 2.0** | Main application window, IPC coordination | Uses native OS webviews (WebKit/Edge) instead of bundling Chromium. |
 | **Automation Sidecar** | **Playwright (Node)** | Headless/Headed ATS form execution | Deterministic shadow-DOM traversal and frame handling. |
 | **Database** | **PostgreSQL** | Relational data persistence | Handles deep JSONB storage for company schemas and workflow states. |
-| **Scraping** | **Python 3.10+** | Multi-tier job aggregation | Leverages `jobspy` and `cf-clearance` ecosystems. |
+| **Scraping** | **Python 3.10+** | Multi-tier job aggregation | Leverages `jobspy`, `scrapling`, and `instructor` for typed extraction. |
 | **Orchestration** | **n8n** | Pipeline execution | Visual workflow management decoupled from the UI. |
 | **Typesetting** | **Tectonic** | Resume/Cover Letter PDF compilation | Self-contained LaTeX engine without a massive TeX Live installation. |
 
----
+## Proxy-Free Design
+
+Notiapply is explicitly engineered to operate without any paid proxy service:
+
+- **Tier 1 (JobSpy)**: LinkedIn, Indeed, Glassdoor, and ZipRecruiter are scraped at the request rate of a single job-seeker. These volumes are several orders of magnitude below what triggers IP bans, which target bulk commercial scrapers.
+- **Tier 4 (Wellfound)**: Uses **Scrapling + Camoufox** — a fingerprint-spoofing browser that presents as a legitimate, randomized user agent and TLS profile. Cloudflare cannot distinguish it from a real user, so no residential proxy IP rotation is required.
+- **Tier 2 (ATS Direct)**: Greenhouse, Lever, and Ashby expose public JSON API endpoints designed to be consumed by job boards. No anti-scraping measures apply.
+- **Tier 3 (GitHub)**: Raw GitHub API with a personal access token. Rate limit is 5,000 req/hour — far above what the pipeline consumes.
+
+> Residential proxy services like Decodo cost $2–15/GB and shift IP risk to a third party. The above stack eliminates this dependency entirely through smarter tooling choices.
 
 ## Unified Monorepo Architecture
 
@@ -61,8 +69,6 @@ Notiapply maps entirely to a local execution environment or a self-hosted instan
 - `user_config` holds the LLM, notification, and credential state.
 - `pipeline_modules` holds dynamic JSON Schema definitions for extensible n8n scraping nodes.
 
----
-
 ## Data Flow
 
 ### The Pipeline Lifecycle
@@ -86,8 +92,6 @@ Notiapply maps entirely to a local execution environment or a self-hosted instan
 4. If successful, the sidecar marks the job as `submitted` in Postgres.
 5. If an anomaly is hit (unknown schema, CAPTCHA), it marks it as `attention` and gracefully exits.
 
----
-
 ## Design Decisions
 
 ### UI-Decoupled Scraping
@@ -98,8 +102,6 @@ Instead of wrestling with WebKit limits inside Tauri, automation is distinctly o
 
 ### Static Export Next.js
 The UI avoids all SSR/Node features of Next.js, compiling down to raw static HTML/JS/CSS via `output: 'export'`. This allows the Tauri rust binary to serve the frontend purely from memory, keeping the footprint microscopic compared to an Electron equivalent.
-
----
 
 ## User Interface Reference
 
@@ -126,7 +128,7 @@ The application supports comprehensive keyboard navigation for power users:
 
 **Multi-Select Mode**
 - `Ctrl+Click` - Toggle individual job selection
-- `Shift+Click` - Select range of jobs (future enhancement)
+- `Shift+Click` - Select range of jobs
 
 ### Search and Filtering
 
@@ -154,3 +156,38 @@ Non-blocking feedback appears bottom-right for:
 - Informational messages (blue)
 
 Toasts auto-dismiss after 3 seconds or can be manually dismissed.
+
+
+## CRM & Contacts
+
+### Contacts Board
+
+The Contacts Board is a supplementary Kanban interface for managing networking relationships alongside the job pipeline. It mirrors the Jobs Board layout while adding contact-specific states.
+
+**Contact States:**
+- **identified** → **drafted** → **contacted** → **replied** → **interviewing** → **rejected/closed**
+
+### Message Drafting
+
+The app can pre-fill personalized outreach drafts using the configured LLM endpoint:
+
+- Pulls context from the contact's role, company, and any enrichment data available
+- Generates a short (< 150 words) draft that the user reviews and sends manually
+- Tone is configurable: professional / casual / enthusiastic
+- Rate-limited to 500ms between requests to avoid API throttling
+
+All sending is manual — the app never sends messages automatically.
+
+### Smart Archiving
+
+To handle high-volume pipelines, columns use initial pagination:
+
+- **Default display:** 20 cards per column
+- **"Show More"** expands to full list on demand
+- **Auto-archive:** Jobs older than N months transition to Archive on state change
+- Search always indexes the full, unpaginated dataset
+
+### View Toggle
+
+The top navigation bar includes a segmented control to switch between the Jobs Pipeline and Contacts views. State is not shared between views, so each board loads independently.
+

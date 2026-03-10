@@ -1,607 +1,90 @@
 # Notiapply — Testing Guide
 
-**Last Updated:** 2026-03-03
+This document outlines the testing strategy, standards, and execution procedures for the Notiapply project.
 
----
+## Testing Strategy
 
-## Overview
+Notiapply employs a multi-layered testing strategy to ensure reliability across the TypeScript frontend, Rust backend, and Playwright sidecar:
 
-Notiapply uses a **unified testing strategy** combining:
-- **Vitest** for frontend unit/component tests (TypeScript/React)
-- **Cargo test** for Rust/Tauri backend tests
-- **Manual integration testing** for end-to-end workflow validation
-
-**Current Coverage:**
-- [PASS] 13/13 frontend tests passing
-- [PASS] Utility functions (timeAgo, formatSalary)
-- [PASS] JSON Schema Form component
-- [PASS] Setup Wizard component (basic)
-- [WARN] Database layer (requires mock)
-- [WARN] Tauri commands (requires mock)
-- [WARN] Sidecar integration (manual only)
-
----
+1.  **Unit Tests (Vitest)**: Fast, isolated tests for utility functions and business logic.
+2.  **Component Tests (React Testing Library)**: Validating UI behavior, form state, and rendering in a JSDOM environment.
+3.  **Integration Tests (Manual/Sidecar)**: Verification of the data flow between the Tauri process, the sidecar, and the PostgreSQL database.
+4.  **End-to-End Tests (Playwright)**: Browser-level automation that validates critical user paths like the Setup Wizard and the Job Board.
 
 ## Quick Start
 
-### Run All Frontend Tests
+### Frontend Unit & Component Tests
+Executed via Vitest. These run in a JSDOM environment and do not require the Tauri runtime or a database.
+
 ```bash
 cd app
 npm run test
 ```
 
-**Output:**
-```
-✓ lib/utils.test.ts (8 tests) 10ms
-✓ app/components/wizard/SetupWizard.test.tsx (2 tests) 82ms
-✓ app/components/settings/JsonSchemaForm.test.tsx (3 tests) 383ms
+### End-to-End Tests
+Executed via Playwright. These require a running dev server.
 
-Test Files  3 passed (3)
-     Tests  13 passed (13)
-```
-
-### Run Tests in Watch Mode
 ```bash
 cd app
-npm run test -- --watch
+npx playwright test
 ```
 
-### Run Specific Test File
+### Rust Backend Tests
+Executed via Cargo. Validates internal Rust logic in the Tauri main process.
+
 ```bash
-cd app
-npx vitest lib/utils.test.ts
+cd app/src-tauri
+cargo test
 ```
 
----
-
-## Test Structure
-
-### Frontend Tests (Vitest + React Testing Library)
-
-```
-app/
-├── lib/
-│   └── utils.test.ts           # Utility function tests
-├── app/
-│   └── components/
-│       ├── wizard/
-│       │   └── SetupWizard.test.tsx
-│       └── settings/
-│           └── JsonSchemaForm.test.tsx
-├── vitest.config.ts            # Vitest configuration
-└── vitest.setup.ts             # Test setup (globals, mocks)
-```
-
-### Test Configuration
-
-**[vitest.config.ts](app/vitest.config.ts)**
-```typescript
-import { defineConfig } from 'vitest/config';
-import react from '@vitejs/plugin-react';
-import path from 'path';
-
-export default defineConfig({
-    plugins: [react()],
-    test: {
-        environment: 'jsdom',
-        setupFiles: ['./vitest.setup.ts'],
-        globals: true,
-        alias: {
-            '@': path.resolve(__dirname, './'),
-        },
-    },
-});
-```
-
----
-
-## Writing Tests
-
-### Unit Tests (Pure Functions)
-
-**Example:** [app/lib/utils.test.ts](app/lib/utils.test.ts)
-
-```typescript
-import { describe, it, expect } from 'vitest';
-import { timeAgo, formatSalary } from './utils';
-
-describe('timeAgo', () => {
-    it('formats minutes correctly', () => {
-        const date = new Date(Date.now() - 5 * 60000).toISOString();
-        expect(timeAgo(date)).toBe('5m ago');
-    });
-});
-
-describe('formatSalary', () => {
-    it('formats min and max range', () => {
-        expect(formatSalary(120000, 150000)).toBe('$120k–$150k');
-    });
-});
-```
-
-### Component Tests (React)
-
-**Example:** [app/app/components/settings/JsonSchemaForm.test.tsx](app/app/components/settings/JsonSchemaForm.test.tsx)
-
-```typescript
-import { render, screen, fireEvent } from '@testing-library/react';
-import JsonSchemaForm from './JsonSchemaForm';
-import { describe, it, expect, vi } from 'vitest';
-
-describe('JsonSchemaForm', () => {
-    it('renders text, number, and boolean fields correctly', () => {
-        const schema = {
-            properties: {
-                testString: { type: 'string', title: 'Test String', default: 'hello' }
-            }
-        };
-        const onChange = vi.fn();
-        render(<JsonSchemaForm schema={schema} value={{} onChange={onChange} />);
-
-        expect(screen.getByText('Test String')).toBeInTheDocument();
-        expect(screen.getByDisplayValue('hello')).toBeInTheDocument();
-    });
-});
-```
-
-### Mocking External Dependencies
-
-**Database Mocks:**
-```typescript
-vi.mock('@/lib/db', () => ({
-    updateUserConfig: vi.fn(),
-    getUserConfig: vi.fn().mockResolvedValue({}),
-    getJobs: vi.fn().mockResolvedValue([]),
-}));
-```
-
-**Tauri Mocks:**
-```typescript
-vi.mock('@tauri-apps/api', () => ({
-    invoke: vi.fn(),
-}));
-```
-
----
-
-## Test Coverage by Layer
-
-### [PASS] Tested
-
-| Component | Test File | Coverage |
-|-----------|-----------|----------|
-| **Utilities** | lib/utils.test.ts | 100% |
-| `timeAgo()` | ✓ | Minutes, hours, days, future dates |
-| `formatSalary()` | ✓ | Min/max, null handling |
-| **JSON Schema Form** | components/settings/JsonSchemaForm.test.tsx | 80% |
-| Text/number/boolean inputs | ✓ | Rendering, defaults, onChange |
-| Enum select dropdowns | ✓ | Rendering, value selection |
-| **Setup Wizard** | components/wizard/SetupWizard.test.tsx | 40% |
-| Step progression | ✓ | Initial render, validation |
-
-### [WARN] Partially Tested / Mocked
-
-| Component | Status | Notes |
-|-----------|--------|-------|
-| **Database Layer** | Mocked | Requires PostgreSQL connection |
-| `getJobs()`, `updateJobState()` | ✓ | Mocked in component tests |
-| **Tauri Commands** | Mocked | Requires Tauri runtime |
-| `startFillSession()`, `triggerPipelineRun()` | ✓ | Mocked in component tests |
-
-### [FAIL] Not Tested (Manual Only)
-
-| Component | Reason |
-|-----------|--------|
-| **Sidecar Integration** | Requires Node.js binary + Playwright |
-| **Database Schema** | Requires PostgreSQL + migrations |
-| **n8n Workflows** | External dependency |
-| **File Upload** | FileReader API complex to mock |
-
----
-
-## Running the App Without Database
-
-### Option 1: Mock Data Mode (Planned)
-
-**Not yet implemented** — To preview UI without database:
-
-1. Create `app/lib/mock-data.ts`:
-```typescript
-export const MOCK_JOBS: Job[] = [
-    {
-        id: 1,
-        source: 'jobspy-linkedin',
-        title: 'Backend Engineer',
-        company: 'Stripe',
-        location: 'Remote',
-        url: 'https://stripe.com/jobs/123',
-        description_raw: 'Build payment infrastructure...',
-        salary_min: 150000,
-        salary_max: 220000,
-        equity_min: null,
-        equity_max: null,
-        company_role_location_hash: 'hash123',
-        discovered_at: new Date().toISOString(),
-        docs_fail_reason: null,
-        state: 'queued',
-    },
-    // ... more mock jobs
-];
-```
-
-2. Update `app/lib/db.ts` to detect `MOCK_MODE`:
-```typescript
-export async function getJobs(): Promise<Job[]> {
-    if (process.env.MOCK_MODE === 'true') {
-        return MOCK_JOBS;
-    }
-    const { rows } = await getPool().query('SELECT * FROM jobs ORDER BY discovered_at DESC');
-    return rows;
-}
-```
-
-3. Run with mock flag:
-```bash
-cd app
-MOCK_MODE=true npm run dev
-```
-
-### Option 2: Local PostgreSQL with Seed Data
-
-**Setup:**
-```bash
-# 1. Install PostgreSQL
-sudo apt install postgresql postgresql-contrib  # Linux
-brew install postgresql@16                      # macOS
-
-# 2. Start PostgreSQL
-sudo systemctl start postgresql  # Linux
-brew services start postgresql   # macOS
-
-# 3. Create database and user
-sudo -u postgres psql
-CREATE DATABASE notiapply;
-CREATE USER notiapply WITH ENCRYPTED PASSWORD 'dev_password';
-GRANT ALL PRIVILEGES ON DATABASE notiapply TO notiapply;
-\q
-
-# 4. Run database migrations (creates all tables + seeds data)
-cd /home/aksha/notiapply
-DATABASE_URL="postgresql://notiapply:dev_password@localhost:5432/notiapply" dbmate up
-
-# Note: migrations/20250101000000_init.sql creates all tables AND seeds pipeline modules
-# No separate seed script needed
-```
-
-**Environment:**
-```bash
-# app/.env.local
-DATABASE_URL=postgresql://notiapply:dev_password@localhost:5432/notiapply
-```
-
----
-
-## Building the Tauri App
-
-### Prerequisites
-
-1. **Rust toolchain:**
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source $HOME/.cargo/env
-```
-
-2. **System dependencies (Linux):**
-```bash
-sudo apt install libwebkit2gtk-4.1-dev \
-    build-essential \
-    curl \
-    wget \
-    file \
-    libssl-dev \
-    libgtk-3-dev \
-    libayatana-appindicator3-dev \
-    librsvg2-dev
-```
-
-3. **Tauri CLI:**
-```bash
-cargo install tauri-cli
-```
-
-### Development Mode (Hot Reload)
-
-**Start Next.js frontend + Tauri window:**
-```bash
-cd app
-npm run tauri dev
-```
-
-This runs:
-1. `npm run dev` (Next.js dev server on :3000)
-2. `cargo run` (Tauri window pointing to localhost:3000)
-
-**What you'll see:**
-- [PASS] Material You UI with hot reload
-- [PASS] Job cards (if database connected)
-- [FAIL] Database queries fail (if no connection)
-- [FAIL] Session runner unavailable (needs sidecar binary)
-
-### Production Build
-
-**Build static export + Tauri binary:**
-```bash
-cd app
-npm run tauri build
-```
-
-This runs:
-1. `npm run build` -> `app/out/` (Next.js static export)
-2. `cargo build --release` -> Compiled Tauri binary
-3. Bundles sidecar Node.js binary (if present)
-
-**Output:**
-```
-app/src-tauri/target/release/
-├── notiapply              # Linux binary
-├── notiapply.exe          # Windows (if cross-compiled)
-└── bundle/
-    ├── deb/
-    │   └── notiapply_0.1.0_amd64.deb
-    ├── appimage/
-    │   └── notiapply_0.1.0_amd64.AppImage
-    └── msi/
-        └── notiapply_0.1.0_x64.msi
-```
-
----
-
-## Preview UI Without Full Stack
-
-### Method 1: Storybook (Recommended for Future)
-
-**Not yet implemented** — Install Storybook:
-```bash
-cd app
-npx sb init --builder vite
-```
-
-Create stories for isolated component preview:
-```typescript
-// app/app/components/board/JobCard.stories.tsx
-import JobCard from './JobCard';
-
-export default {
-    title: 'Board/JobCard',
-    component: JobCard,
-};
-
-export const Queued = {
-    args: {
-        job: {
-            id: 1,
-            source: 'jobspy-linkedin',
-            title: 'Backend Engineer',
-            company: 'Stripe',
-            state: 'queued',
-            // ...
-        },
-    },
-};
-```
-
-Run Storybook:
-```bash
-npm run storybook
-```
-
-### Method 2: Next.js Dev Server (Current)
-
-**Run frontend only:**
-```bash
-cd app
-npm run dev
-```
-
-Visit: http://localhost:3000
-
-**What works:**
-- [PASS] Visual design (Material You)
-- [PASS] UI components render
-- [PASS] Routing (Board, Settings, Focus)
-- [FAIL] Database queries throw errors
-- [FAIL] Tauri commands unavailable
-
-**Workaround:** Comment out database calls temporarily:
-```typescript
-// app/app/components/board/Board.tsx
-useEffect(() => {
-    // getJobs().then(setJobs).catch(console.error);  // Commented
-    setJobs(MOCK_JOBS);  // Use mock data
-}, []);
-```
-
----
-
-## Manual Integration Testing
-
-### Test Plan (Complete Workflow)
-
-**Prerequisites:**
-- [PASS] PostgreSQL running with schema loaded
-- [PASS] n8n workflows deployed (9 files)
-- [PASS] Sidecar Node.js binary downloaded
-- [PASS] Chrome + Simplify extension installed
-
-**Test Checklist:**
-
-#### 1. Setup Wizard
-- [ ] Upload master resume (.tex file)
-- [ ] Upload cover letter template (.tex file)
-- [ ] Enter LLM endpoint + API key
-- [ ] Test LLM endpoint (green checkmark)
-- [ ] Enter ntfy.sh topic
-- [ ] Add search terms (e.g., "software engineer", "backend")
-- [ ] Add locations (e.g., "Remote", "San Francisco")
-- [ ] Complete wizard -> See board
-
-#### 2. Pipeline Scraping
-- [ ] Click `···` -> Scrape Now
-- [ ] Wait for n8n pipeline run (~2-5 min)
-- [ ] Verify jobs appear in "Incoming" column
-- [ ] Check ntfy.sh notification received
-
-#### 3. Job Review
-- [ ] Click job card -> Opens Focus Mode
-- [ ] Read job description
-- [ ] Click "Archive" -> Card moves to Archive column
-- [ ] Click another job -> Mark as queued (manually via DB)
-
-#### 4. Fill Session
-- [ ] Verify jobs in "Ready" column
-- [ ] Click "> Start Session"
-- [ ] Button changes to "● Filling..." (yellow, shimmer)
-- [ ] Session banner appears at bottom with progress
-- [ ] Chrome window opens with Simplify
-- [ ] Resume uploaded automatically
-- [ ] ATS form filled by Simplify
-- [ ] Job moves to "Submitted" or "Attention" column
-- [ ] Session banner shows summary (3 ready · 1 attention)
-
-#### 5. Application Review
-- [ ] Open job in "Submitted" column
-- [ ] Verify PDF resume attached
-- [ ] Click "^ Open Job" -> Browser opens ATS page
-- [ ] Click "✓ Mark Submitted" -> State updates
-- [ ] Job moves to "Tracking"
-
-#### 6. Settings
-- [ ] Open Settings -> Verify modules listed
-- [ ] Toggle module off -> Refresh shows disabled
-- [ ] Drag module to reorder -> Execution order updates
-- [ ] Add custom module (dummy n8n workflow)
-- [ ] Configure module with JSON schema form
-- [ ] Delete custom module
-
-#### 7. ATS Watchlist
-- [ ] Click `···` -> ATS Watchlist
-- [ ] Add company (e.g., "Stripe", "greenhouse", "stripe")
-- [ ] Verify company appears in list
-- [ ] Remove company -> Confirm deletion
-
----
-
-## Continuous Integration (Future)
-
-**Not yet implemented** — GitHub Actions workflow:
-
-```yaml
-# .github/workflows/test.yml
-name: Test Suite
-on: [push, pull_request]
-jobs:
-  frontend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: cd app && npm ci
-      - run: cd app && npm run test
-      - run: cd app && npm run build
-
-  backend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cd app/src-tauri && cargo test
-```
-
----
-
-## Test Naming Conventions
-
-| Type | Filename | Pattern |
-|------|----------|---------|
-| **Unit Tests** | `utils.test.ts` | `describe('functionName', () => { it('does X', ...) })` |
-| **Component Tests** | `JobCard.test.tsx` | `describe('JobCard', () => { it('renders correctly', ...) })` |
-| **Integration Tests** | `board-workflow.test.ts` | `describe('Board workflow', () => { it('moves job between columns', ...) })` |
-
----
-
-## Coverage Goals
-
-### Current
-- **Frontend Units:** 13/13 passing (100%)
-- **Component Tests:** 3 files (~30% coverage)
-- **Integration:** 0% (manual only)
-
-### Target (v1.0)
-- **Frontend Units:** 100% for lib/ utils
-- **Component Tests:** 80% for UI components
-- **Integration:** Manual checklist documented
-- **E2E:** Playwright tests for critical paths (stretch goal)
-
----
+## Environment Setup
+
+### Mock Data Mode (Local Development)
+For UI-centric development and testing, Notiapply includes a built-in Mock Mode. If the application handles a database connection failure, it automatically falls back to static data defined in `app/lib/mock-data.ts`.
+
+To run with mock data:
+1. Ensure no PostgreSQL service is running on Port 5432.
+2. Run `npm run dev`.
+
+### Local Integration Environment
+To test the full persistent pipeline, a local PostgreSQL instance is required.
+
+1. **Initialize Database**:
+   ```bash
+   # Using dbmate for migrations
+   DATABASE_URL="postgresql://user:pass@localhost:5432/notiapply" dbmate up
+   ```
+2. **Configure Environment**:
+   Create `app/.env.local` pointing to your local instance.
+
+## Standards and Conventions
+
+### Test File Naming
+- **Unit/Component**: `*.test.ts` or `*.test.tsx` colocated with the source file.
+- **E2E**: `tests/e2e/*.spec.ts`.
+
+### Mocking Philosophy
+- **Tauri Commands**: All `invoke` calls should be mocked using `vi.mock('@tauri-apps/api')` to allow tests to run outside the Tauri environment.
+- **Database Layer**: Data fetching logic in `@/lib/db` should be mocked in component tests to ensure UI responsiveness tests aren't blocked by DB I/O.
+- **Sidecar**: The Playwright sidecar is treated as a separate service; its interactions are tested through smoke tests that verify the NDJSON stream format.
+
+### Continuous Integration
+The test suite is designed to be CI-ready:
+- **Headless Mode**: Playwright tests run in headless mode by default for automated environments.
+- **Static Assets**: Build verification ensures the Next.js static export correctly bundles with the Tauri binary.
+
+## Manual Integration Checklist
+Before every release, the following manual checks are performed to validate parts of the system that are difficult to automate (e.g., native file dialogs, sidecar IPC):
+
+1. **Setup Wizard**: Verify `.tex` file upload and LLM key validation.
+2. **Live Scrape**: Trigger an n8n pipeline run and verify jobs appear in "Incoming".
+3. **Fill Session**: Verify that `startFillSession` correctly spawns the Playwright sidecar.
+4. **Focus Mode**: Ensure the PDF preview renders correctly for generated resumes.
 
 ## Troubleshooting
 
 ### "DATABASE_URL not set"
-**Cause:** Missing `.env.local` file
-**Fix:**
-```bash
-cd app
-cp ../.env.example .env.local
-# Edit DATABASE_URL to point to local PostgreSQL
-```
+Ensure your `.env.local` is present in the `app/` directory and contains a valid connection string.
 
 ### "Tauri commands not available"
-**Cause:** Running `npm run dev` instead of `npm run tauri dev`
-**Fix:** Use Tauri CLI:
-```bash
-cd app
-npm run tauri dev
-```
-
-### "Module not found: Can't resolve 'dns'"
-**Cause:** Next.js trying to bundle pg for browser
-**Fix:** Already resolved in [next.config.ts](app/next.config.ts) with webpack fallbacks
-
-### Tests hang on database queries
-**Cause:** Real database calls in tests
-**Fix:** Mock `@/lib/db` module:
-```typescript
-vi.mock('@/lib/db', () => ({
-    getJobs: vi.fn().mockResolvedValue([]),
-}));
-```
-
----
-
-## Summary
-
-### [PASS] What's Testable Now
-- Utility functions (time formatting, salary formatting)
-- React components (JSON schema form, setup wizard)
-- UI rendering and interactions
-
-### [WARN] What Requires Mocks
-- Database operations (PostgreSQL connection)
-- Tauri commands (native binary)
-- File uploads (FileReader API)
-
-### [FAIL] What's Manual Only
-- Full workflow (scraping -> filling -> submitting)
-- n8n pipeline integration
-- Sidecar automation with Playwright
-- Database schema migrations
-
-### [START] Preview Options
-1. **Run tests:** `cd app && npm run test` [PASS]
-2. **Run frontend dev:** `cd app && npm run dev` [PASS] (with mock data)
-3. **Run Tauri dev:** `cd app && npm run tauri dev` [PASS] (needs DB)
-4. **Build Tauri app:** `cd app && npm run tauri build` [PASS] (full build)
-
-**Recommendation:** Use `npm run tauri dev` with local PostgreSQL for best preview experience.
+If testing native features (notifications, shell commands), you must run the application via `npm run tauri dev` rather than the standard browser-only dev server.

@@ -2,8 +2,6 @@
 
 Notiapply consists of three localized domains: the scraping fleet (usually headless), the automation sidecar, and the desktop UI.
 
----
-
 ## System Prerequisites
 
 - **Node.js**: v20 or higher.
@@ -70,8 +68,6 @@ npx tauri build
 
 The compiled binary will be located in `app/src-tauri/target/release/`.
 
----
-
 ## Configuration Workflow
 
 1. Open the Tauri application.
@@ -79,5 +75,5 @@ The compiled binary will be located in `app/src-tauri/target/release/`.
    - Input your Google AI Studio (`gemini-1.5-flash`) API Key.
    - Attach your baseline `.tex` master resume.
    - Define your target behavioral tags and ATS platform watchlist.
-3. Once in the Kanban board, access the **Settings** panel to explicitly map the SQLite `n8n` database hook URLs if operating in the remote-split architecture.
+3. Once in the Kanban board, access the **Settings** panel to configure the n8n webhook URLs if operating in the remote-split architecture.
 4. Jobs will populate in the `incoming` and `ready` columns as the Python fleet executes.

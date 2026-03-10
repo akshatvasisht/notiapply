@@ -2,8 +2,6 @@
 
 This project spans multiple languages (TypeScript, Python, Rust). Strict adherence to native idioms ensures stability across the IPC boundaries.
 
----
-
 ## TypeScript (Next.js Application & Sidecar)
 
 ### Strict Types
@@ -18,8 +16,6 @@ The database schema acts as the ultimate unyielding truth. All TypeScript interf
 ### Component Isolation
 - Forms in the `SetupWizard` and `SettingsPage` must be entirely self-contained, propagating generic `onChange` and `onTest` handler payloads upwards, rather than deeply nesting the parent state pointer.
 
----
-
 ## Python (Scraping Fleet)
 
 ### Execution Model
@@ -27,16 +23,12 @@ The python scrapers operate entirely independent of the desktop application. The
 - **Stateless Operation**: Scrapers load their instructions purely via JSON payload strings passed through `sys.argv`. State is mutated directly to the PostgreSQL database via `psycopg2`. No intermediate `.env` file reading should occur inside a scraper instance.
 - **Error Bounds**: Exhaustive `try/except` captures. If an ATS scraper (Tier 2) fails to map a specific company's slug, it must soft-fail and log, allowing the loop to continue to the next target without crashing the orchestrator phase.
 
----
-
 ## Rust (Tauri Main Process)
 
 ### Inter-Process Communication (IPC)
 The Tauri core acts exclusively as a secure orchestrator handling OS-level constraints that the embedded Webview forbids.
 - Commands implemented in `app/src-tauri/src/lib.rs` must immediately return `Result<T, String>` to map gracefully to the `catch` blocks of the React frontend.
 - When spawning the `fill.js` Node sidecar, the stream is captured line-by-line decoding standard `NDJSON` objects. Any lines not mapping to the registered `SidecarEvent` structs must be forwarded safely to STDERR without interrupting the pipe.
-
----
 
 ## Database Management
 

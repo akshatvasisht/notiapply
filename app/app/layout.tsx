@@ -8,6 +8,10 @@ const geist = Geist({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "Notiapply",
   description: "Automated job application pipeline",
+  icons: {
+    icon: '/icon.svg',
+    apple: '/icon.png',
+  },
 };
 
 export default function RootLayout({

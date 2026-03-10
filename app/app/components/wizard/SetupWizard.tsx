@@ -63,46 +63,79 @@ export default function SetupWizard({ onComplete }: WizardProps) {
 
     return (
         <div style={{
-            display: 'flex', flexDirection: 'column', alignItems: 'center',
-            justifyContent: 'center', height: '100vh', padding: 40,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            minHeight: '100vh',
+            padding: '24px 40px',
             background: 'var(--color-surface)',
+            overflowY: 'auto',
         }}>
             {/* DEV ONLY: Skip button */}
             {process.env.NODE_ENV === 'development' && (
                 <button
                     onClick={handleDevSkip}
                     style={{
-                        position: 'absolute', top: 20, right: 20,
-                        padding: '6px 12px', borderRadius: 6, fontSize: 11,
-                        background: 'var(--color-warning-container)', color: 'var(--color-warning)',
-                        border: '1px solid var(--color-warning)', cursor: 'pointer',
-                        fontWeight: 500, letterSpacing: '0.5px',
+                        position: 'absolute',
+                        top: 20,
+                        right: 20,
+                        padding: '6px 12px',
+                        borderRadius: 'var(--radius-md)',
+                        fontSize: 11,
+                        background: 'var(--color-warning-container)',
+                        color: 'var(--color-warning)',
+                        border: '1px solid var(--color-warning)',
+                        cursor: 'pointer',
+                        fontWeight: 500,
+                        letterSpacing: '0.5px',
                     }}
                     title="DEV ONLY: Skip wizard with mock data"
                 >
-                    [DEV] Skip Setup (Dev)
+                    [DEV] Skip Setup
                 </button>
             )}
 
-            {/* Progress dots */}
-            <div style={{ display: 'flex', gap: 8, marginBottom: 32 }}>
-                {STEPS.map((s, i) => (
-                    <div
-                        key={s}
-                        style={{
-                            width: 8, height: 8, borderRadius: '50%',
-                            background: i <= step ? 'var(--color-primary)' : 'var(--color-border)',
-                            transition: 'background 0.2s',
-                        }}
-                    />
-                ))}
-            </div>
-
+            {/* Centered container for dots and card */}
             <div style={{
-                width: '100%', maxWidth: 520, minHeight: 400,
-                background: 'var(--color-surface)', borderRadius: 12,
-                border: '1px solid var(--color-border)', padding: 32,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                width: '100%',
+                maxWidth: 520,
             }}>
+                {/* Progress dots */}
+                <div style={{
+                    display: 'flex',
+                    gap: 8,
+                    marginBottom: 32,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                }}>
+                    {STEPS.map((s, i) => (
+                        <div
+                            key={s}
+                            style={{
+                                width: 8,
+                                height: 8,
+                                borderRadius: '50%',
+                                background: i <= step ? 'var(--color-primary)' : 'var(--color-outline-variant)',
+                                transition: 'background 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                            }}
+                        />
+                    ))}
+                </div>
+
+                {/* Content card */}
+                <div style={{
+                    width: '100%',
+                    minHeight: 400,
+                    background: 'var(--color-surface-container)',
+                    borderRadius: 'var(--radius-xl)',
+                    border: '1px solid var(--color-outline-variant)',
+                    padding: 32,
+                    boxShadow: 'var(--elevation-1)',
+                }}>
                 <h2 style={{ fontSize: 18, fontWeight: 600, color: 'var(--color-text-primary)', marginTop: 0 }}>
                     {STEPS[step]}
                 </h2>
@@ -122,26 +155,33 @@ export default function SetupWizard({ onComplete }: WizardProps) {
                 {step === 3 && (
                     <ConfirmStep config={config} hasResume={!!resumeTeX} hasCover={!!coverTeX} />
                 )}
-            </div>
+                </div>
 
-            {/* Navigation */}
-            <div style={{ display: 'flex', gap: 12, marginTop: 24 }}>
-                {step > 0 && (
-                    <button onClick={() => setStep(s => s - 1)} style={navBtn('outline')}>Back</button>
-                )}
-                {step < 3 ? (
-                    <button
-                        onClick={() => setStep(s => s + 1)}
-                        disabled={!canAdvance()}
-                        style={navBtn(canAdvance() ? 'primary' : 'disabled')}
-                    >
-                        Continue
-                    </button>
-                ) : (
-                    <button onClick={handleFinish} style={navBtn('primary')}>
-                        Launch Notiapply
-                    </button>
-                )}
+                {/* Navigation */}
+                <div style={{
+                    display: 'flex',
+                    gap: 12,
+                    marginTop: 24,
+                    width: '100%',
+                    justifyContent: 'center',
+                }}>
+                    {step > 0 && (
+                        <button onClick={() => setStep(s => s - 1)} style={navBtn('outline')}>Back</button>
+                    )}
+                    {step < 3 ? (
+                        <button
+                            onClick={() => setStep(s => s + 1)}
+                            disabled={!canAdvance()}
+                            style={navBtn(canAdvance() ? 'primary' : 'disabled')}
+                        >
+                            Continue
+                        </button>
+                    ) : (
+                        <button onClick={handleFinish} style={navBtn('primary')}>
+                            Launch Notiapply
+                        </button>
+                    )}
+                </div>
             </div>
         </div>
     );
@@ -149,12 +189,38 @@ export default function SetupWizard({ onComplete }: WizardProps) {
 
 function navBtn(variant: 'primary' | 'outline' | 'disabled'): React.CSSProperties {
     const base: React.CSSProperties = {
-        padding: '8px 24px', borderRadius: 6, fontSize: 13, fontWeight: 500,
-        cursor: 'pointer', border: 'none', transition: 'all 0.15s',
+        padding: '10px 24px',
+        borderRadius: 'var(--radius-pill)',
+        fontSize: 13,
+        fontWeight: 500,
+        cursor: 'pointer',
+        border: 'none',
+        transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+        letterSpacing: '0.5px',
     };
-    if (variant === 'primary') return { ...base, background: 'var(--color-primary)', color: 'var(--color-text-inverse)' };
-    if (variant === 'outline') return { ...base, background: 'transparent', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)' };
-    return { ...base, background: 'var(--color-border)', color: 'var(--color-text-disabled)', cursor: 'not-allowed' };
+    if (variant === 'primary') {
+        return {
+            ...base,
+            background: 'var(--color-primary)',
+            color: 'var(--color-on-primary)',
+            boxShadow: 'var(--elevation-1)',
+        };
+    }
+    if (variant === 'outline') {
+        return {
+            ...base,
+            background: 'transparent',
+            color: 'var(--color-on-surface)',
+            border: '1px solid var(--color-outline)',
+        };
+    }
+    return {
+        ...base,
+        background: 'var(--color-surface-container-low)',
+        color: 'var(--color-on-surface-disabled)',
+        cursor: 'not-allowed',
+        opacity: 0.5,
+    };
 }
 
 // ─── Step 1: Resume Upload ─────────────────────────────────────────────────────
@@ -245,7 +311,6 @@ function ApiKeysStep({ config, onChange, validations, setValidations }: {
             <InputField label="LLM Model" value={config.llm_model ?? 'gemini-1.5-flash'} onChange={v => onChange({ llm_model: v })} />
             <InputField label="ntfy.sh Topic *" value={config.ntfy_topic ?? ''} onChange={v => onChange({ ntfy_topic: v })} placeholder="notiapply-abc123" />
             <InputField label="GitHub Token (optional)" value={config.github_token ?? ''} onChange={v => onChange({ github_token: v })} type="password" />
-            <InputField label="Decodo Proxy (optional)" value={config.decodo_proxy ?? ''} onChange={v => onChange({ decodo_proxy: v })} placeholder="user:pass@gate.decodo.com:7000" />
         </div>
     );
 }
@@ -299,7 +364,6 @@ function ConfirmStep({ config, hasResume, hasCover }: {
         ['Search Terms', config.search_terms?.join(', ') ?? '—'],
         ['Locations', config.locations?.join(', ') ?? '—'],
         ['GitHub Repos', config.github_repos?.join(', ') ?? '—'],
-        ['Proxy', config.decodo_proxy ? 'Configured' : '— None'],
     ];
 
     return (

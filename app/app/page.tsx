@@ -6,15 +6,22 @@ import type { UserConfig } from '@/lib/types';
 import Board from '@/app/components/board/JobsBoard';
 import ContactsBoard from '@/app/components/board/ContactsBoard';
 import SetupWizard from '@/app/components/wizard/SetupWizard';
+import WelcomeScreen from '@/app/components/wizard/WelcomeScreen';
 import BoardHeader from '@/app/components/common/BoardHeader';
+import ViewToggle from '@/app/components/common/ViewToggle';
 import SettingsPage from '@/app/components/settings/SettingsPage';
 
 export default function Home() {
   const [config, setConfig] = useState<UserConfig | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'jobs' | 'contacts'>('jobs');
+  const [showWelcome, setShowWelcome] = useState(true);
+  const [activeView, setActiveView] = useState<'jobs' | 'contacts'>('jobs');
   const [view, setView] = useState<'board' | 'settings'>('board');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // State to receive metrics and actions from active board
+  const [metricsContent, setMetricsContent] = useState<React.ReactNode>(null);
+  const [actionsContent, setActionsContent] = useState<React.ReactNode>(null);
 
   useEffect(() => {
     getUserConfig()
@@ -27,7 +34,8 @@ export default function Home() {
     return (
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        height: '100vh', color: 'var(--color-text-tertiary)',
+        height: '100vh', color: 'var(--color-on-surface-variant)',
+        fontSize: 14,
       }}>
         Loading...
       </div>
@@ -35,6 +43,9 @@ export default function Home() {
   }
 
   if (!config?.setup_complete) {
+    if (showWelcome) {
+      return <WelcomeScreen onContinue={() => setShowWelcome(false)} />;
+    }
     return <SetupWizard onComplete={() => setConfig({ ...config, setup_complete: true })} />;
   }
 
@@ -42,42 +53,35 @@ export default function Home() {
     return <SettingsPage onBack={() => setView('board')} />;
   }
 
-  const tabButtons = (
-    <div style={{ display: 'flex', gap: 4, height: '100%', alignItems: 'center' }}>
-      {(['jobs', 'contacts'] as const).map((tab) => (
-        <button
-          key={tab}
-          onClick={() => setActiveTab(tab)}
-          style={{
-            height: '100%',
-            background: 'none', border: 'none', cursor: 'pointer',
-            borderBottom: activeTab === tab ? '3px solid var(--color-primary)' : '3px solid transparent',
-            color: activeTab === tab ? 'var(--color-primary)' : 'var(--color-on-surface-variant)',
-            fontWeight: 600, fontSize: 13,
-            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-            padding: '0 12px',
-          }}
-        >
-          {tab === 'jobs' ? 'Jobs Pipeline' : 'Outreach CRM'}
-        </button>
-      ))}
-    </div>
-  );
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', background: 'var(--color-surface)' }}>
       <BoardHeader
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
-        searchPlaceholder={activeTab === 'jobs' ? 'Search by title, company, location…' : 'Search by name, role or company…'}
+        searchPlaceholder={activeView === 'jobs' ? 'Search by title, company, location…' : 'Search by name, role or company…'}
         onOpenSettings={() => setView('settings')}
-        centerContent={tabButtons}
+        toggleContent={
+          <ViewToggle value={activeView} onChange={setActiveView} />
+        }
+        metricsContent={metricsContent}
+        actionsContent={actionsContent}
       />
       <div style={{ flex: 1, overflow: 'hidden' }}>
-        {activeTab === 'jobs'
-          ? <Board searchQuery={searchQuery} onSearchChange={setSearchQuery} />
-          : <ContactsBoard searchQuery={searchQuery} onSearchChange={setSearchQuery} />
-        }
+        {activeView === 'jobs' ? (
+          <Board
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            onMetricsChange={setMetricsContent}
+            onActionsChange={setActionsContent}
+          />
+        ) : (
+          <ContactsBoard
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            onMetricsChange={setMetricsContent}
+            onActionsChange={setActionsContent}
+          />
+        )}
       </div>
     </div>
   );

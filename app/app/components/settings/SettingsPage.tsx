@@ -19,6 +19,7 @@ import { MOCK_CONFIG, MOCK_MODULES } from '@/lib/mock-data';
 import JsonSchemaForm from './JsonSchemaForm';
 import SourceLegend from './SourceLegend';
 import StatusLegend from './StatusLegend';
+import ContactStatusLegend from './ContactStatusLegend';
 
 export default function SettingsPage({ onBack }: { onBack: () => void }) {
     const [config, setConfig] = useState<UserConfig>({});
@@ -186,13 +187,56 @@ export default function SettingsPage({ onBack }: { onBack: () => void }) {
                 {/* Credentials */}
                 <Section title="Credentials">
                     <Field label="GitHub Token" value={config.github_token ?? ''} onChange={v => patch({ github_token: v })} type="password" />
-                    <Field label="Decodo Proxy" value={config.decodo_proxy ?? ''} onChange={v => patch({ decodo_proxy: v })} placeholder="user:pass@gate.decodo.com:7000" />
+                </Section>
+
+                {/* CRM & Outreach */}
+                <Section title="CRM & Outreach">
+                    <Field
+                        label="Default Message Tone"
+                        value={config.crm_message_tone ?? 'professional'}
+                        onChange={v => patch({ crm_message_tone: v })}
+                        placeholder="professional, casual, enthusiastic"
+                    />
+                    <Field
+                        label="LinkedIn Cookie (for enrichment)"
+                        value={config.linkedin_cookie ?? ''}
+                        onChange={v => patch({ linkedin_cookie: v })}
+                        type="password"
+                        placeholder="li_at cookie value"
+                    />
+                    <Field
+                        label="Email SMTP Host (optional)"
+                        value={config.smtp_host ?? ''}
+                        onChange={v => patch({ smtp_host: v })}
+                        placeholder="smtp.gmail.com"
+                    />
+                    <Field
+                        label="Email SMTP Port (optional)"
+                        value={config.smtp_port ?? ''}
+                        onChange={v => patch({ smtp_port: v })}
+                        placeholder="587"
+                    />
+                </Section>
+
+                {/* Data Management */}
+                <Section title="Data Management">
+                    <Field
+                        label="Auto-archive jobs after (months)"
+                        value={config.archive_after_months?.toString() ?? '3'}
+                        onChange={v => patch({ archive_after_months: parseInt(v) || 3 })}
+                        type="number"
+                        placeholder="3"
+                    />
+                    <div style={{ fontSize: 12, color: 'var(--color-on-surface-variant)', marginTop: -8 }}>
+                        Jobs older than this will be moved to archive after state transition to "submitted" or "rejected"
+                    </div>
                 </Section>
 
                 {/* Legends */}
                 <div style={{ marginTop: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
                     <SourceLegend />
                     <StatusLegend />
+                    <ContactStatusLegend />
                 </div>
             </div>
 
@@ -323,11 +367,35 @@ function Field({ label, value, onChange, type = 'text', placeholder }: {
 }) {
     return (
         <div style={{ marginBottom: 12 }}>
-            <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-tertiary)', display: 'block', marginBottom: 4 }}>{label}</label>
-            <input value={value} onChange={e => onChange(e.target.value)} type={type} placeholder={placeholder} style={{
-                width: '100%', padding: '8px 12px', fontSize: 13, borderRadius: 6, border: '1px solid var(--color-border)',
-                background: 'var(--color-surface)', color: 'var(--color-text-primary)', outline: 'none', boxSizing: 'border-box',
-            }} />
+            <label style={{
+                fontSize: 12,
+                fontWeight: 500,
+                color: 'var(--color-on-surface-variant)',
+                display: 'block',
+                marginBottom: 4,
+            }}>
+                {label}
+            </label>
+            <input
+                value={value}
+                onChange={e => onChange(e.target.value)}
+                type={type}
+                placeholder={placeholder}
+                style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    fontSize: 13,
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-outline-variant)',
+                    background: 'var(--color-surface-container)',
+                    color: 'var(--color-on-surface)',
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                    transition: 'border-color 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                }}
+                onFocus={(e) => e.currentTarget.style.borderColor = 'var(--color-primary)'}
+                onBlur={(e) => e.currentTarget.style.borderColor = 'var(--color-outline-variant)'}
+            />
         </div>
     );
 }
@@ -349,7 +417,15 @@ function FieldWithTest({ label, value, onChange, type = 'text', placeholder, onT
 
     return (
         <div style={{ marginBottom: 12 }}>
-            <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-tertiary)', display: 'block', marginBottom: 4 }}>{label}</label>
+            <label style={{
+                fontSize: 12,
+                fontWeight: 500,
+                color: 'var(--color-on-surface-variant)',
+                display: 'block',
+                marginBottom: 4,
+            }}>
+                {label}
+            </label>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <input
                     value={value}
@@ -360,11 +436,18 @@ function FieldWithTest({ label, value, onChange, type = 'text', placeholder, onT
                         flex: 1,
                         padding: '8px 12px',
                         fontSize: 13,
-                        borderRadius: 6,
-                        border: `1px solid ${testResult === 'error' ? 'var(--color-error)' : testResult === 'success' ? 'var(--color-success)' : 'var(--color-border)'}`,
-                        background: 'var(--color-surface)',
-                        color: 'var(--color-text-primary)',
+                        borderRadius: 'var(--radius-md)',
+                        border: `1px solid ${testResult === 'error' ? 'var(--color-error)' : testResult === 'success' ? 'var(--color-success)' : 'var(--color-outline-variant)'}`,
+                        background: 'var(--color-surface-container)',
+                        color: 'var(--color-on-surface)',
                         outline: 'none',
+                        transition: 'border-color 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    }}
+                    onFocus={(e) => {
+                        if (!testResult) e.currentTarget.style.borderColor = 'var(--color-primary)';
+                    }}
+                    onBlur={(e) => {
+                        if (!testResult) e.currentTarget.style.borderColor = 'var(--color-outline-variant)';
                     }}
                 />
                 <button
@@ -373,13 +456,15 @@ function FieldWithTest({ label, value, onChange, type = 'text', placeholder, onT
                     style={{
                         padding: '8px 14px',
                         fontSize: 12,
-                        borderRadius: 6,
+                        borderRadius: 'var(--radius-md)',
                         border: 'none',
-                        background: testing ? 'var(--color-border)' : 'var(--color-primary)',
-                        color: testing ? 'var(--color-text-disabled)' : 'var(--color-text-inverse)',
+                        background: testing || !value ? 'var(--color-surface-container-low)' : 'var(--color-primary)',
+                        color: testing || !value ? 'var(--color-on-surface-disabled)' : 'var(--color-on-primary)',
                         cursor: testing || !value ? 'not-allowed' : 'pointer',
                         fontWeight: 500,
                         minWidth: 60,
+                        transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                        opacity: testing || !value ? 0.5 : 1,
                     }}
                 >
                     {testing ? '...' : 'Test'}

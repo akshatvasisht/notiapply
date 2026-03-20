@@ -11,9 +11,19 @@ export type ContactState =
 export type JobSource =
     | 'jobspy-linkedin' | 'jobspy-indeed' | 'jobspy-glassdoor' | 'jobspy-ziprecruiter'
     | 'ats-greenhouse' | 'ats-lever' | 'ats-ashby'
-    | 'github-simplify' | 'wellfound';
+    | 'github-simplify' | 'wellfound' | 'manual';
 
 export type PipelinePhase = 'scraping' | 'processing' | 'output';
+
+export type LLMProvider = 'openai' | 'anthropic' | 'gemini' | 'local';
+
+export type ScraperStatus = 'running' | 'success' | 'failed';
+
+export interface InteractionLogEntry {
+    timestamp: string;
+    event: string;
+    notes?: string;
+}
 
 export interface Contact {
     id: number;
@@ -28,10 +38,21 @@ export interface Contact {
     job_id: number | null;
     scraped_company_id: number | null;
     created_at: string;
+    updated_at: string;
+    // Contact discovery metadata
+    department: string | null;              // Engineering, Product, Sales, etc.
+    source: string | null;                  // job_description_email, linkedin_search, yc_scraper, etc.
+    // Outreach tracking (new fields)
+    follow_up_date: string | null;          // ISO date string
+    intro_source: string | null;            // "warm intro via X", "cold LinkedIn", etc.
+    last_contacted_at: string | null;       // TIMESTAMPTZ
+    interaction_log: InteractionLogEntry[]; // [{timestamp, event, notes}, ...]
+    got_response: boolean | null;           // null=not contacted, true=replied, false=ghosted
     // Enrichment fields (populated by n8n pipeline)
     company_funding_stage: string | null;   // e.g. "Series C", "Public"
     company_headcount_range: string | null; // e.g. "501–1,000 employees"
     company_industry: string | null;        // e.g. "Artificial Intelligence"
+    company_notes: string | null;           // Manual notes about the company
     linkedin_posts_summary: string | null;  // LLM summary of recent posts
 }
 
@@ -53,6 +74,10 @@ export interface Job {
     docs_fail_reason: string | null;
     state: JobState;
     company_logo_url: string | null;
+    updated_at: string;
+    // Feedback tracking (new fields)
+    got_callback: boolean | null;    // null=no response, true=callback/interview, false=rejected
+    callback_notes: string | null;   // "They mentioned my X project", etc.
 }
 
 export interface Application {
@@ -109,6 +134,7 @@ export interface UserConfig {
     };
     n8n_webhook_url?: string;
     n8n_webhook_secret?: string;
+    llm_provider?: LLMProvider;
     llm_endpoint?: string;
     llm_api_key?: string;
     llm_model?: string;
@@ -117,10 +143,31 @@ export interface UserConfig {
     // CRM & Outreach settings
     crm_message_tone?: string;
     linkedin_cookie?: string;
-    smtp_host?: string;
-    smtp_port?: string;
     // Data Management
     archive_after_months?: number;
+    // Browser Agent
+    browser_agent_enabled?: boolean;
+    browser_agent_auto_login?: boolean;
+    browser_agent_fallback?: boolean;
+    browser_agent_max_tokens?: number;        // LLM max tokens for browser agent (default: 4096)
+    browser_agent_temperature?: number;       // LLM temperature for browser agent (default: 0.1)
+    browser_agent_action_timeout?: number;    // Timeout for browser actions in ms (default: 5000)
+
+    // User Profile (single source of truth for ATS signup + email verification)
+    user_email?: string;          // Primary email for ATS accounts + verification
+    user_email_password?: string; // Email password for IMAP (app-specific password)
+    user_first_name?: string;     // Used for ATS account creation
+    user_last_name?: string;      // Used for ATS account creation
+    user_phone?: string;          // Used for ATS account creation
+
+    // ATS Account Password (separate from email password)
+    ats_password?: string;        // Password for ATS platforms (encrypted in database)
+
+    // Email Verification Settings (optional overrides)
+    email_imap_host?: string;              // Manual IMAP host override (auto-detected if not set)
+    email_imap_port?: number;              // IMAP port (default: 993)
+    email_imap_secure?: boolean;           // Use TLS (default: true)
+    email_verification_timeout?: number;   // Timeout in milliseconds (default: 120000)
 }
 
 export interface ScrapedCompany {
@@ -168,6 +215,23 @@ export interface AutomationStats {
 export interface SourceCoverage {
     active: number;
     total: number;
+}
+
+export interface ScraperRun {
+    id: number;
+    scraper_key: string;
+    started_at: string;
+    completed_at: string | null;
+    jobs_found: number;
+    errors: string[] | null;
+    status: ScraperStatus;
+    version: string | null;
+}
+
+export interface CallbackStats {
+    total_applications: number;
+    total_callbacks: number;
+    callback_rate: number;
 }
 
 /** Board column definitions */
@@ -270,6 +334,8 @@ export const SOURCE_COLORS: Record<string, { text: string; bg: string }> = {
     'github-simplify': { text: 'var(--color-warning)', bg: 'var(--color-warning-container)' },
     // Startup platforms (Purple/Secondary)
     'wellfound': { text: 'var(--color-secondary)', bg: 'var(--color-secondary-container)' },
+    // Manual entry (Neutral)
+    'manual': { text: 'var(--color-text-secondary)', bg: 'var(--color-surface-container)' },
 };
 
 export const SOURCE_LABELS: Record<string, string> = {
@@ -282,6 +348,7 @@ export const SOURCE_LABELS: Record<string, string> = {
     'ats-ashby': 'Ashby',
     'github-simplify': 'GitHub',
     'wellfound': 'Wellfound',
+    'manual': 'Manual',
 };
 
 export const SOURCE_CATEGORIES = {

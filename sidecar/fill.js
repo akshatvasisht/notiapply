@@ -9,24 +9,32 @@
  * Usage: node fill.js --session-id <uuid> --chromium-path <path> --simplify-path <path>
  */
 
-require('dotenv').config();
-const { chromium } = require('playwright');
+
+const { chromium } = require('playwright-extra'); // Stealth-enabled Playwright
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const { Client } = require('pg');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const minimist = require('minimist');
+const { createBrowserAgent } = require('./browser-agent');
+const { createEmailChecker } = require('./email-verification');
+const { solveCaptchaIfPresent } = require('./captcha-solver');
+
+// Apply stealth plugin to bypass bot detection
+chromium.use(StealthPlugin());
 
 const args = minimist(process.argv.slice(2), {
-    string: ['session-id', 'chromium-path', 'simplify-path'],
+    string: ['session-id', 'chromium-path', 'simplify-path', 'db-url'],
 });
 
 const SESSION_ID = args['session-id'];
 const CHROMIUM_PATH = args['chromium-path'];
 const SIMPLIFY_PATH = args['simplify-path'];
+const DB_URL = args['db-url'];
 
-if (!SESSION_ID || !CHROMIUM_PATH || !SIMPLIFY_PATH) {
-    console.error('Usage: node fill.js --session-id <uuid> --chromium-path <path> --simplify-path <path>');
+if (!SESSION_ID || !CHROMIUM_PATH || !SIMPLIFY_PATH || !DB_URL) {
+    console.error('Usage: node fill.js --session-id <uuid> --chromium-path <path> --simplify-path <path> --db-url <url>');
     process.exit(1);
 }
 
@@ -83,8 +91,23 @@ async function main() {
     // Emits preflight_failed and exits(2) if either is missing.
     preflight();
 
-    const db = new Client({ connectionString: process.env.DATABASE_URL });
+    const db = new Client({ connectionString: DB_URL });
     await db.connect();
+
+    // Load browser agent config from database
+    let browserAgent = null;
+    let userConfig = null;
+    try {
+        const { rows } = await db.query('SELECT * FROM user_config LIMIT 1');
+        userConfig = rows[0];
+
+        if (userConfig?.browser_agent_enabled && userConfig?.llm_endpoint) {
+            browserAgent = await createBrowserAgent(userConfig);
+            emit({ event: 'info', message: `Browser agent enabled with ${userConfig.llm_provider || 'openai'}` });
+        }
+    } catch (error) {
+        emit({ event: 'warning', message: `Failed to load browser agent config: ${error.message}` });
+    }
 
     // Fetch queued applications
     const { rows: applications } = await db.query(`
@@ -147,10 +170,257 @@ async function main() {
             );
 
             const page = await browser.newPage();
-            await page.goto(app.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+            // Network retry with exponential backoff
+            let navigationSuccess = false;
+            let attempt = 0;
+            const maxAttempts = 3;
+
+            while (!navigationSuccess && attempt < maxAttempts) {
+                try {
+                    attempt++;
+                    await page.goto(app.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+                    navigationSuccess = true;
+                } catch (navError) {
+                    if (attempt < maxAttempts) {
+                        const backoffMs = 1000 * Math.pow(2, attempt - 1); // 1s, 2s, 4s
+                        await new Promise(resolve => setTimeout(resolve, backoffMs));
+                    } else {
+                        throw new Error(`Navigation failed after ${maxAttempts} attempts: ${navError.message}`);
+                    }
+                }
+            }
 
             const ats = detectAts(app.url);
             await db.query('UPDATE applications SET ats_platform = $1 WHERE id = $2', [ats, app.id]);
+
+            // Session validation - check if user is logged in
+            const isLoggedIn = await page.evaluate(() => {
+                // Check for common logged-out indicators across ATS platforms
+                const loggedOutPatterns = [
+                    /sign\s*in/i, /log\s*in/i, /login/i,
+                    /create\s*account/i, /register/i,
+                    /enter\s*your\s*email/i, /enter\s*your\s*password/i
+                ];
+
+                // Check button text and link text
+                const buttons = Array.from(document.querySelectorAll('button, a, [role="button"]'));
+                const hasLoginButton = buttons.some(btn => {
+                    const text = btn.textContent?.trim() || '';
+                    return loggedOutPatterns.some(pattern => pattern.test(text));
+                });
+
+                // Check for login forms (email + password fields together)
+                const emailInput = document.querySelector('input[type="email"], input[name*="email" i], input[id*="email" i]');
+                const passwordInput = document.querySelector('input[type="password"]');
+                const hasLoginForm = emailInput && passwordInput;
+
+                return !(hasLoginButton || hasLoginForm);
+            });
+
+            if (!isLoggedIn) {
+                const domain = new URL(app.url).hostname;
+
+                // Check if this is a signup/registration page
+                const needsAccountCreation = await page.evaluate(() => {
+                    const signupPatterns = [
+                        /create\s*account/i, /sign\s*up/i, /register/i,
+                        /new\s*user/i, /join\s*now/i, /get\s*started/i
+                    ];
+                    const buttons = Array.from(document.querySelectorAll('button, a, [role="button"]'));
+                    const hasSignupButton = buttons.some(btn => {
+                        const text = btn.textContent?.trim() || '';
+                        return signupPatterns.some(pattern => pattern.test(text));
+                    });
+
+                    // Check page title/heading for signup indicators
+                    const title = document.title.toLowerCase();
+                    const headings = Array.from(document.querySelectorAll('h1, h2, h3'))
+                        .map(h => h.textContent?.toLowerCase() || '');
+                    const hasSignupHeading = [...headings, title].some(text =>
+                        signupPatterns.some(pattern => pattern.test(text))
+                    );
+
+                    return hasSignupButton || hasSignupHeading;
+                });
+
+                // Handle account creation if needed
+                if (needsAccountCreation && browserAgent && userConfig.browser_agent_auto_login && userConfig.user_email) {
+                    try {
+                        emit({ event: 'info', message: `No account found on ${domain}. Creating account using browser agent...` });
+
+                        const userData = {
+                            email: userConfig.user_email,
+                            password: userConfig.ats_password,
+                            firstName: userConfig.user_first_name,
+                            lastName: userConfig.user_last_name,
+                            phone: userConfig.user_phone
+                        };
+
+                        const accountCreationStartTime = Date.now();
+                        await browserAgent.createAccount(page, userData);
+
+                        // Wait for account creation to complete
+                        await page.waitForTimeout(3000);
+
+                        // Solve CAPTCHA if present (FREE - no API key needed!)
+                        try {
+                            const captchaSolved = await solveCaptchaIfPresent(page);
+                            if (captchaSolved) {
+                                emit({ event: 'success', message: `CAPTCHA bypassed/solved automatically on ${domain}` });
+                                await page.waitForTimeout(2000);
+                            }
+                        } catch (captchaError) {
+                            emit({ event: 'info', message: `CAPTCHA detection: ${captchaError.message}` });
+                            // Not a failure - will continue and may mark for manual review if CAPTCHA blocks progress
+                        }
+
+                        // Check if email verification is required
+                        const needsEmailVerification = await page.evaluate(() => {
+                            const verifyPatterns = /check\s*your\s*email|verify\s*your\s*email|confirm\s*your\s*email|verification\s*email/i;
+                            const pageText = document.body.innerText;
+                            return verifyPatterns.test(pageText);
+                        });
+
+                        if (needsEmailVerification) {
+                            emit({ event: 'info', message: `Email verification required for ${domain}. Monitoring inbox...` });
+
+                            try {
+                                // Create email checker for this domain
+                                const emailTimeout = userConfig.email_verification_timeout || 120000; // Default 2 minutes
+                                const checkEmail = createEmailChecker(domain, accountCreationStartTime, userConfig);
+
+                                // Wait for verification email and click link
+                                await browserAgent.waitForEmailVerification(
+                                    page,
+                                    userConfig.user_email,
+                                    checkEmail,
+                                    emailTimeout
+                                );
+
+                                emit({ event: 'success', message: `Email verified successfully for ${domain}` });
+                                await page.waitForTimeout(2000);
+                            } catch (emailError) {
+                                // Email verification failed - mark for manual review
+                                emit({ event: 'warning', message: `Email verification timeout for ${domain}. Please verify manually.` });
+
+                                await db.query("UPDATE jobs SET state = 'review-incomplete' WHERE id = $1", [app.job_id]);
+                                await db.query(
+                                    "UPDATE applications SET fill_error_ats = $1, fill_notes = $2, fill_completed_at = NOW() WHERE id = $3",
+                                    [ats, `Account created but email verification pending. Check ${userConfig.user_email} and click verification link.`, app.id]
+                                );
+                                incomplete++;
+                                await page.close();
+                                continue;
+                            }
+                        }
+
+                        // Verify account creation succeeded (should redirect to logged-in state or login page)
+                        const accountCreated = await page.evaluate(() => {
+                            const signupPatterns = /create\s*account|sign\s*up|register/i;
+                            const buttons = Array.from(document.querySelectorAll('button, a, [role="button"]'));
+                            const stillOnSignup = buttons.some(btn => signupPatterns.test(btn.textContent?.trim() || ''));
+                            return !stillOnSignup;
+                        });
+
+                        if (accountCreated) {
+                            emit({ event: 'success', message: `Account created successfully on ${domain}` });
+
+                            // After account creation, may need to log in
+                            const nowLoggedIn = await page.evaluate(() => {
+                                const loggedOutPatterns = /sign\s*in|log\s*in|login/i;
+                                const buttons = Array.from(document.querySelectorAll('button, a, [role="button"]'));
+                                return !buttons.some(btn => loggedOutPatterns.test(btn.textContent?.trim() || ''));
+                            });
+
+                            if (!nowLoggedIn) {
+                                emit({ event: 'info', message: `Logging in to newly created account on ${domain}...` });
+                                await browserAgent.login(page, userConfig.user_email, userConfig.ats_password);
+                                await page.waitForTimeout(2000);
+                            }
+                        } else {
+                            throw new Error('Account creation verification failed - still on signup page');
+                        }
+                    } catch (signupError) {
+                        emit({
+                            event: 'warning',
+                            message: `Account creation failed for ${domain}: ${signupError.message}. Marking for manual review.`
+                        });
+
+                        await db.query("UPDATE jobs SET state = 'review-incomplete' WHERE id = $1", [app.job_id]);
+                        await db.query(
+                            "UPDATE applications SET fill_error_ats = $1, fill_notes = $2, fill_completed_at = NOW() WHERE id = $3",
+                            [ats, `Account creation failed for ${domain}. Please create account manually.`, app.id]
+                        );
+                        incomplete++;
+                        await page.close();
+                        continue;
+                    }
+                } else if (browserAgent && userConfig.browser_agent_auto_login && userConfig.user_email) {
+                    // Attempt auto-login if browser agent is configured
+                    try {
+                        emit({ event: 'info', message: `Attempting auto-login for ${domain} using browser agent...` });
+
+                        await browserAgent.login(
+                            page,
+                            userConfig.user_email,
+                            userConfig.ats_password
+                        );
+
+                        // Verify login succeeded
+                        await page.waitForTimeout(2000); // Wait for redirect/page load
+                        const nowLoggedIn = await page.evaluate(() => {
+                            const loggedOutPatterns = [
+                                /sign\s*in/i, /log\s*in/i, /login/i,
+                                /enter\s*your\s*email/i, /enter\s*your\s*password/i
+                            ];
+                            const buttons = Array.from(document.querySelectorAll('button, a, [role="button"]'));
+                            const hasLoginButton = buttons.some(btn => {
+                                const text = btn.textContent?.trim() || '';
+                                return loggedOutPatterns.some(pattern => pattern.test(text));
+                            });
+                            return !hasLoginButton;
+                        });
+
+                        if (nowLoggedIn) {
+                            emit({ event: 'success', message: `Auto-login successful for ${domain}` });
+                            // Continue with application - don't skip to next iteration
+                        } else {
+                            throw new Error('Login verification failed - still seeing login page');
+                        }
+                    } catch (loginError) {
+                        emit({
+                            event: 'warning',
+                            message: `Auto-login failed for ${domain}: ${loginError.message}. Marking for manual review.`
+                        });
+
+                        await db.query("UPDATE jobs SET state = 'review-incomplete' WHERE id = $1", [app.job_id]);
+                        await db.query(
+                            "UPDATE applications SET fill_error_ats = $1, fill_notes = $2, fill_completed_at = NOW() WHERE id = $3",
+                            [ats, `Auto-login failed for ${domain}. Please log in manually.`, app.id]
+                        );
+                        incomplete++;
+                        await page.close();
+                        continue;
+                    }
+                } else {
+                    // No browser agent or auto-login disabled - require manual login
+                    await db.query("UPDATE jobs SET state = 'review-incomplete' WHERE id = $1", [app.job_id]);
+                    await db.query(
+                        "UPDATE applications SET fill_error_ats = $1, fill_notes = $2, fill_completed_at = NOW() WHERE id = $3",
+                        [ats, `Not logged in to ${domain}. Please log in manually using the persistent browser session.`, app.id]
+                    );
+                    emit({
+                        event: 'error',
+                        message: `Session expired for ${domain}. Please log in manually and retry.`,
+                        application_id: app.id,
+                        ats
+                    });
+                    incomplete++;
+                    await page.close();
+                    continue;
+                }
+            }
 
             // Resume upload — Strategy A: static file input
             let uploaded = false;
@@ -177,26 +447,70 @@ async function main() {
             try {
                 await page.waitForSelector('[data-simplify-loaded="true"]', { timeout: 10000 });
             } catch {
-                await db.query("UPDATE jobs SET state = 'fill-failed' WHERE id = $1", [app.job_id]);
+                // Simplify timeout → mark as manual-review instead of failed
+                await db.query("UPDATE jobs SET state = 'review-incomplete' WHERE id = $1", [app.job_id]);
                 await db.query(
                     "UPDATE applications SET fill_error_ats = $1, fill_notes = $2, fill_completed_at = NOW() WHERE id = $3",
-                    [ats, 'Simplify overlay timeout', app.id]
+                    [ats, 'Simplify extension did not load. Manual review required.', app.id]
                 );
-                emit({ event: 'failed', application_id: app.id, ats, reason: 'Simplify overlay timeout' });
-                failed++;
+                emit({ event: 'incomplete', application_id: app.id, ats, missing_fields: ['Simplify not loaded'] });
+                incomplete++;
                 await page.close();
                 continue;
             }
 
-            // Trigger Simplify autofill and wait for completion
+            // Click Simplify autofill button to trigger filling
+            let autofillTriggered = false;
+            try {
+                // Strategy 1: Look for Simplify's autofill button by common selectors
+                const simplifyButton = await page.waitForSelector(
+                    'button:has-text("Autofill"), [aria-label*="Autofill"], [data-testid*="autofill"], button[class*="simplify"]',
+                    { timeout: 3000 }
+                ).catch(() => null);
+
+                if (simplifyButton) {
+                    await simplifyButton.click();
+                    autofillTriggered = true;
+                } else {
+                    // Strategy 2: Search for any button with "autofill" text (case-insensitive)
+                    autofillTriggered = await page.evaluate(() => {
+                        const buttons = Array.from(document.querySelectorAll('button, [role="button"]'));
+                        const autofillBtn = buttons.find(btn =>
+                            btn.textContent?.toLowerCase().includes('autofill') ||
+                            btn.getAttribute('aria-label')?.toLowerCase().includes('autofill')
+                        );
+                        if (autofillBtn) {
+                            autofillBtn.click();
+                            return true;
+                        }
+                        return false;
+                    });
+                }
+
+                if (!autofillTriggered) {
+                    // Strategy 3: Try clicking Simplify extension popup/icon if visible
+                    const extensionIcon = await page.locator('[class*="simplify"], [id*="simplify"]').first();
+                    if (await extensionIcon.isVisible().catch(() => false)) {
+                        await extensionIcon.click();
+                        autofillTriggered = true;
+                    }
+                }
+            } catch (e) {
+                emit({ event: 'warning', message: `Could not click Simplify button: ${e.message}` });
+            }
+
+            // Wait for Simplify autofill to complete
             try {
                 await page.waitForSelector('[data-simplify-filling="false"]', { timeout: 30000 });
             } catch {
                 // Timeout waiting for fill — treat as incomplete
+                if (!autofillTriggered) {
+                    emit({ event: 'warning', message: 'Simplify autofill button not found - may need manual trigger' });
+                }
             }
 
             // Post-fill inspection
-            const emptyRequired = await page.evaluate(() =>
+            let emptyRequired = await page.evaluate(() =>
                 Array.from(document.querySelectorAll(
                     'input[required], select[required], textarea[required]'
                 ))
@@ -207,13 +521,56 @@ async function main() {
                     })
             );
 
-            if (emptyRequired.length > 0) {
+            // Track resume upload status
+            let allMissingFields = uploaded ? emptyRequired : ['Resume not uploaded', ...emptyRequired];
+
+            // Fallback to browser agent if Simplify left required fields empty
+            if (allMissingFields.length > 0 && browserAgent && userConfig.browser_agent_fallback) {
+                try {
+                    emit({ event: 'info', message: `Simplify left ${allMissingFields.length} fields empty. Attempting browser agent fallback...` });
+
+                    // Prepare application data from user config
+                    const applicationData = {
+                        firstName: userConfig.user_first_name,
+                        lastName: userConfig.user_last_name,
+                        email: userConfig.user_email,
+                        phone: userConfig.user_phone,
+                        resumePath: app.local_resume_pdf_path
+                    };
+
+                    await browserAgent.fillApplication(page, applicationData);
+
+                    // Re-check for empty required fields
+                    emptyRequired = await page.evaluate(() =>
+                        Array.from(document.querySelectorAll(
+                            'input[required], select[required], textarea[required]'
+                        ))
+                            .filter(el => !el.value?.trim())
+                            .map(el => {
+                                const label = document.querySelector(`label[for="${el.id}"]`);
+                                return label?.innerText.trim() || el.name || el.placeholder || 'Unknown field';
+                            })
+                    );
+
+                    allMissingFields = uploaded ? emptyRequired : ['Resume not uploaded', ...emptyRequired];
+
+                    if (allMissingFields.length === 0) {
+                        emit({ event: 'success', message: 'Browser agent successfully filled remaining fields' });
+                    } else {
+                        emit({ event: 'warning', message: `Browser agent reduced missing fields to ${allMissingFields.length}` });
+                    }
+                } catch (agentError) {
+                    emit({ event: 'warning', message: `Browser agent fallback failed: ${agentError.message}` });
+                }
+            }
+
+            if (allMissingFields.length > 0) {
                 await db.query("UPDATE jobs SET state = 'review-incomplete' WHERE id = $1", [app.job_id]);
                 await db.query(
                     "UPDATE applications SET incomplete_fields = $1, fill_completed_at = NOW() WHERE id = $2",
-                    [JSON.stringify(emptyRequired), app.id]
+                    [JSON.stringify(allMissingFields), app.id]
                 );
-                emit({ event: 'incomplete', application_id: app.id, ats, missing_fields: emptyRequired });
+                emit({ event: 'incomplete', application_id: app.id, ats, missing_fields: allMissingFields });
                 incomplete++;
             } else {
                 await db.query("UPDATE jobs SET state = 'review-ready' WHERE id = $1", [app.job_id]);

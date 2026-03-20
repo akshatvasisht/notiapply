@@ -67,12 +67,13 @@ function FieldRenderer({ fieldKey, prop, value, onChange, required }: {
 }) {
     const label = prop.title ?? fieldKey;
     const current = value ?? prop.default;
+    const inputId = `field-${fieldKey}`;
 
     // Enum → <select>
     if (prop.enum) {
         return (
-            <Field label={label} description={prop.description} required={required}>
-                <select value={String(current ?? prop.enum[0])} onChange={e => onChange(e.target.value)} style={{ ...inputStyle }}>
+            <Field label={label} description={prop.description} required={required} htmlFor={inputId}>
+                <select id={inputId} value={String(current ?? prop.enum[0])} onChange={e => onChange(e.target.value)} style={{ ...inputStyle }}>
                     {prop.enum.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                 </select>
             </Field>
@@ -87,22 +88,26 @@ function FieldRenderer({ fieldKey, prop, value, onChange, required }: {
         if (itemEnum) {
             // Multi-checkbox for small enum arrays
             return (
-                <Field label={label} description={prop.description} required={required}>
+                <Field label={label} description={prop.description} required={required} htmlFor="">
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                        {itemEnum.map(opt => (
-                            <label key={opt} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
-                                <input
-                                    type="checkbox"
-                                    checked={arr.includes(opt)}
-                                    onChange={e => {
-                                        const next = e.target.checked ? [...arr, opt] : arr.filter(x => x !== opt);
-                                        onChange(next);
-                                    }}
-                                    style={{ accentColor: 'var(--color-primary)' }}
-                                />
-                                {opt}
-                            </label>
-                        ))}
+                        {itemEnum.map(opt => {
+                            const checkboxId = `${fieldKey}-${opt}`;
+                            return (
+                                <label key={opt} htmlFor={checkboxId} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+                                    <input
+                                        id={checkboxId}
+                                        type="checkbox"
+                                        checked={arr.includes(opt)}
+                                        onChange={e => {
+                                            const next = e.target.checked ? [...arr, opt] : arr.filter(x => x !== opt);
+                                            onChange(next);
+                                        }}
+                                        style={{ accentColor: 'var(--color-primary)' }}
+                                    />
+                                    {opt}
+                                </label>
+                            );
+                        })}
                     </div>
                 </Field>
             );
@@ -110,17 +115,19 @@ function FieldRenderer({ fieldKey, prop, value, onChange, required }: {
 
         // Free-form string array with tag input
         return (
-            <Field label={label} description={prop.description} required={required}>
-                <TagArrayInput values={arr} onChange={onChange} />
+            <Field label={label} description={prop.description} required={required} htmlFor={inputId}>
+                <TagArrayInput values={arr} onChange={onChange} inputId={inputId} />
             </Field>
         );
     }
 
     // Boolean → checkbox
     if (prop.type === 'boolean') {
+        const checkboxId = `${fieldKey}-checkbox`;
         return (
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <label htmlFor={checkboxId} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
                 <input
+                    id={checkboxId}
                     type="checkbox"
                     checked={Boolean(current)}
                     onChange={e => onChange(e.target.checked)}
@@ -142,8 +149,9 @@ function FieldRenderer({ fieldKey, prop, value, onChange, required }: {
         const num = current != null ? Number(current) : (prop.default != null ? Number(prop.default) : '');
         if (prop.minimum != null && prop.maximum != null) {
             return (
-                <Field label={`${label}: ${num}`} description={prop.description} required={required}>
+                <Field label={`${label}: ${num}`} description={prop.description} required={required} htmlFor={inputId}>
                     <input
+                        id={inputId}
                         type="range" min={prop.minimum} max={prop.maximum}
                         value={Number(num)} onChange={e => onChange(Number(e.target.value))}
                         style={{ width: '100%', accentColor: 'var(--color-primary)' }}
@@ -155,26 +163,26 @@ function FieldRenderer({ fieldKey, prop, value, onChange, required }: {
             );
         }
         return (
-            <Field label={label} description={prop.description} required={required}>
-                <input type="number" value={num} onChange={e => onChange(Number(e.target.value))} style={inputStyle} />
+            <Field label={label} description={prop.description} required={required} htmlFor={inputId}>
+                <input id={inputId} type="number" value={num} onChange={e => onChange(Number(e.target.value))} style={inputStyle} />
             </Field>
         );
     }
 
     // Default → string text input
     return (
-        <Field label={label} description={prop.description} required={required}>
-            <input type="text" value={String(current ?? '')} onChange={e => onChange(e.target.value)} style={inputStyle} />
+        <Field label={label} description={prop.description} required={required} htmlFor={inputId}>
+            <input id={inputId} type="text" value={String(current ?? '')} onChange={e => onChange(e.target.value)} style={inputStyle} />
         </Field>
     );
 }
 
-function Field({ label, description, required, children }: {
-    label: string; description?: string; required: boolean; children: React.ReactNode;
+function Field({ label, description, required, htmlFor, children }: {
+    label: string; description?: string; required: boolean; htmlFor?: string; children: React.ReactNode;
 }) {
     return (
         <div>
-            <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-tertiary)', display: 'block', marginBottom: 4 }}>
+            <label htmlFor={htmlFor} style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-tertiary)', display: 'block', marginBottom: 4 }}>
                 {label}
                 {required && <span style={{ color: 'var(--color-error)', marginLeft: 2 }}>*</span>}
                 {description && <span style={{ fontWeight: 400, marginLeft: 6, color: 'var(--color-text-disabled)' }}>{description}</span>}
@@ -184,7 +192,7 @@ function Field({ label, description, required, children }: {
     );
 }
 
-function TagArrayInput({ values, onChange }: { values: string[]; onChange: (v: unknown) => void }) {
+function TagArrayInput({ values, onChange, inputId }: { values: string[]; onChange: (v: unknown) => void; inputId?: string }) {
     return (
         <div style={{
             display: 'flex', flexWrap: 'wrap', gap: 4,
@@ -204,6 +212,7 @@ function TagArrayInput({ values, onChange }: { values: string[]; onChange: (v: u
                 </span>
             ))}
             <input
+                id={inputId}
                 onKeyDown={e => {
                     const input = e.currentTarget;
                     if (e.key === 'Enter' && input.value.trim()) {

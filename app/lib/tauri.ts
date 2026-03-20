@@ -42,12 +42,14 @@ export async function startFillSession(
 
     const chromiumPath = await getEnv('CHROMIUM_EXECUTABLE_PATH');
     const simplifyPath = await getEnv('SIMPLIFY_EXTENSION_PATH');
+    const dbUrl = await getEnv('DATABASE_URL');
 
     const sidecar = tauriCommand!.sidecar('binaries/node', [
         'sidecar/fill.js',
         '--session-id', sessionId,
         '--chromium-path', chromiumPath,
         '--simplify-path', simplifyPath,
+        '--db-url', dbUrl,
     ]);
 
     sidecar.stdout.on('data', (line: string) => {

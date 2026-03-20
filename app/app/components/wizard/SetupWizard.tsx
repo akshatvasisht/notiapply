@@ -394,12 +394,14 @@ function InputField({ label, value, onChange, type = 'text', placeholder }: {
     label: string; value: string; onChange: (v: string) => void;
     type?: string; placeholder?: string;
 }) {
+    const inputId = `input-${label.toLowerCase().replace(/\s+/g, '-')}`;
     return (
         <div>
-            <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-tertiary)', display: 'block', marginBottom: 4 }}>
+            <label htmlFor={inputId} style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-tertiary)', display: 'block', marginBottom: 4 }}>
                 {label}
             </label>
             <input
+                id={inputId}
                 type={type}
                 value={value}
                 onChange={e => onChange(e.target.value)}
@@ -422,14 +424,16 @@ function ValidatedField({ label, value, onChange, placeholder, status, onTest }:
 }) {
     const indicator = status === 'pass' ? '[Yes]' : status === 'fail' ? '[No]' : status === 'pending' ? '...' : '';
     const indicatorColor = status === 'pass' ? 'var(--color-success)' : status === 'fail' ? 'var(--color-error)' : 'var(--color-text-tertiary)';
+    const inputId = `validated-${label.toLowerCase().replace(/\s+/g, '-')}`;
 
     return (
         <div>
-            <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-tertiary)', display: 'block', marginBottom: 4 }}>
+            <label htmlFor={inputId} style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-tertiary)', display: 'block', marginBottom: 4 }}>
                 {label} {indicator && <span style={{ color: indicatorColor }}>{indicator}</span>}
             </label>
             <div style={{ display: 'flex', gap: 8 }}>
                 <input
+                    id={inputId}
                     value={value}
                     onChange={e => onChange(e.target.value)}
                     onBlur={onTest}
@@ -459,6 +463,7 @@ function TagField({ label, tags, onChange, placeholder }: {
     label: string; tags: string[]; onChange: (tags: string[]) => void; placeholder?: string;
 }) {
     const [input, setInput] = useState('');
+    const inputId = `tag-${label.toLowerCase().replace(/\s+/g, '-')}`;
 
     const addTag = () => {
         const v = input.trim();
@@ -470,7 +475,7 @@ function TagField({ label, tags, onChange, placeholder }: {
 
     return (
         <div>
-            <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-tertiary)', display: 'block', marginBottom: 4 }}>
+            <label htmlFor={inputId} style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-tertiary)', display: 'block', marginBottom: 4 }}>
                 {label}
             </label>
             <div style={{
@@ -495,6 +500,7 @@ function TagField({ label, tags, onChange, placeholder }: {
                     </span>
                 ))}
                 <input
+                    id={inputId}
                     value={input}
                     onChange={e => setInput(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addTag(); } }}

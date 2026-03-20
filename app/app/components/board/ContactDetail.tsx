@@ -1,6 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
+import { logger } from '@/lib/logger';
 import type { Contact } from '@/lib/types';
 import {
     CONTACT_STATE_COLORS,
@@ -10,21 +12,52 @@ import {
 import { timeAgo } from '@/lib/utils';
 import CompanyAvatar from '../common/CompanyAvatar';
 import type { Job } from '@/lib/types';
+import { scoreDraft, type DraftScore } from '@/lib/draft-scoring';
+import { updateContactResponse, addContactInteraction } from '@/lib/db';
+import { generateDraftMessage } from '@/lib/llm';
+import { extractResumeContext } from '@/lib/resume-context';
+import EnrichContactModal from './EnrichContactModal';
 
 interface Props {
     contact: Contact;
     jobs: Job[];
     onClose: () => void;
     onStateChange: (id: number, state: string) => void;
+    onContactUpdated: (updatedContact: Contact) => void;
 }
 
-export default function ContactDetail({ contact, jobs, onClose, onStateChange: _onStateChange }: Props) {
+export default function ContactDetail({ contact, jobs, onClose, onStateChange: _onStateChange, onContactUpdated }: Props) {
     const [copied, setCopied] = useState(false);
     const [notesExpanded, setNotesExpanded] = useState(false);
     const [msgExpanded, setMsgExpanded] = useState(false);
+    const [draftScore, setDraftScore] = useState<DraftScore | null>(null);
+    const [scoring, setScoring] = useState(false);
+    const [showEnrichModal, setShowEnrichModal] = useState(false);
     const borderColor = getContactBorderColor(contact.state);
     const stateColors = CONTACT_STATE_COLORS[contact.state];
     const stateLabel = CONTACT_STATE_LABELS[contact.state];
+
+    // Sanitize URLs to prevent XSS via javascript: protocol
+    const safeLinkedInUrl = contact.linkedin_url?.startsWith('http') ? contact.linkedin_url : undefined;
+    const safeEmail = contact.email && !contact.email.includes('"') && !contact.email.includes('<') ? contact.email : undefined;
+
+    // Score draft when message exists and is in 'drafted' state
+    useEffect(() => {
+        if (contact.drafted_message && contact.state === 'drafted' && !draftScore && !scoring) {
+            setScoring(true);
+            scoreDraft({
+                draft: contact.drafted_message,
+                contactName: contact.name,
+                companyName: contact.company_name,
+                contactRole: contact.role || undefined,
+            })
+                .then(setDraftScore)
+                .catch(err => {
+                    logger.error('Draft scoring failed', 'ContactDetail', err);
+                })
+                .finally(() => setScoring(false));
+        }
+    }, [contact.drafted_message, contact.state, contact.name, contact.company_name, contact.role, draftScore, scoring]);
 
     // Find linked job if exists
     const linkedJob = contact.job_id ? jobs.find(j => j.id === contact.job_id) : null;
@@ -102,9 +135,32 @@ export default function ContactDetail({ contact, jobs, onClose, onStateChange: _
                         </div>
                         <div style={{ fontSize: 'var(--font-size-md)', color: 'var(--color-text-tertiary)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                             <span>{contact.company_name}</span>
-                            {contact.linkedin_url && (
-                                <a href={contact.linkedin_url} target="_blank" rel="noreferrer"
-                                    style={{ color: '#0077B5', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 3, fontSize: 'var(--font-size-sm)' }}>
+                            <button
+                                onClick={() => setShowEnrichModal(true)}
+                                style={{
+                                    padding: '4px 8px',
+                                    borderRadius: 4,
+                                    border: '1px solid var(--color-border)',
+                                    background: 'var(--color-surface)',
+                                    fontSize: 11,
+                                    color: 'var(--color-text-secondary)',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.15s ease',
+                                }}
+                                onMouseEnter={(e) => {
+                                    e.currentTarget.style.borderColor = 'var(--color-primary)';
+                                    e.currentTarget.style.color = 'var(--color-primary)';
+                                }}
+                                onMouseLeave={(e) => {
+                                    e.currentTarget.style.borderColor = 'var(--color-border)';
+                                    e.currentTarget.style.color = 'var(--color-text-secondary)';
+                                }}
+                            >
+                                + Enrich
+                            </button>
+                            {safeLinkedInUrl && (
+                                <a href={safeLinkedInUrl} target="_blank" rel="noreferrer"
+                                    style={{ color: 'var(--color-primary)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 3, fontSize: 'var(--font-size-sm)' }}>
                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
                                         <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z" />
                                         <rect x="2" y="9" width="4" height="12" />
@@ -113,14 +169,14 @@ export default function ContactDetail({ contact, jobs, onClose, onStateChange: _
                                     View LinkedIn
                                 </a>
                             )}
-                            {contact.email && (
-                                <a href={`mailto:${contact.email}`}
+                            {safeEmail && (
+                                <a href={`mailto:${safeEmail}`}
                                     style={{ color: 'var(--color-text-secondary)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 3, fontSize: 'var(--font-size-sm)' }}>
                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                         <rect x="2" y="4" width="20" height="16" rx="2" />
                                         <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
                                     </svg>
-                                    {contact.email}
+                                    {safeEmail}
                                 </a>
                             )}
                         </div>
@@ -186,8 +242,8 @@ export default function ContactDetail({ contact, jobs, onClose, onStateChange: _
                             <div style={{
                                 display: 'flex', alignItems: 'center', gap: 8,
                                 padding: '10px 14px', borderRadius: 8,
-                                background: 'rgba(255, 171, 0, 0.08)',
-                                border: '1px solid rgba(255, 171, 0, 0.3)',
+                                background: 'var(--color-warning-container)',
+                                border: '1px solid var(--color-warning)',
                                 color: 'var(--color-warning)', fontSize: 'var(--font-size-sm)',
                             }}>
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -264,6 +320,204 @@ export default function ContactDetail({ contact, jobs, onClose, onStateChange: _
                                 }}>
                                     {contact.drafted_message}
                                 </div>
+
+                                {/* Draft Quality Score */}
+                                {scoring && (
+                                    <div style={{
+                                        padding: '12px 16px',
+                                        background: 'var(--color-surface-raised)',
+                                        borderTop: '1px solid var(--color-border)',
+                                        fontSize: 12,
+                                        color: 'var(--color-text-secondary)',
+                                    }}>
+                                        Analyzing draft quality...
+                                    </div>
+                                )}
+
+                                {draftScore && (
+                                    <div style={{
+                                        padding: '14px 16px',
+                                        background: 'var(--color-surface-raised)',
+                                        borderTop: '1px solid var(--color-border)',
+                                    }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                                    Quality Score
+                                                </span>
+                                                {draftScore.passesThreshold && (
+                                                    <div style={{
+                                                        padding: '2px 8px',
+                                                        borderRadius: 4,
+                                                        background: 'var(--color-success-container)',
+                                                        color: 'var(--color-success)',
+                                                        fontSize: 10,
+                                                        fontWeight: 600,
+                                                    }}>
+                                                        READY
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <span style={{
+                                                fontSize: 18,
+                                                fontWeight: 700,
+                                                color: draftScore.overall >= 70 ? 'var(--color-success)' : draftScore.overall >= 50 ? 'var(--color-warning)' : 'var(--color-error)',
+                                            }}>
+                                                {draftScore.overall}
+                                                <span style={{ fontSize: 12, fontWeight: 400 }}>/100</span>
+                                            </span>
+                                        </div>
+
+                                        {/* Sub-scores */}
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+                                            <ScoreBar label="Specificity" score={draftScore.specificity} />
+                                            <ScoreBar label="Length" score={draftScore.length} />
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11 }}>
+                                                <span style={{ color: 'var(--color-text-secondary)' }}>Clear Ask</span>
+                                                <span style={{
+                                                    color: draftScore.hasAsk ? 'var(--color-success)' : 'var(--color-text-disabled)',
+                                                    fontWeight: 500,
+                                                }}>
+                                                    {draftScore.hasAsk ? '✓ Yes' : '✗ No'}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        {/* Feedback */}
+                                        {draftScore.feedback.length > 0 && (
+                                            <div style={{
+                                                padding: '10px 12px',
+                                                background: 'var(--color-warning-container)',
+                                                borderRadius: 6,
+                                                fontSize: 11,
+                                                lineHeight: 1.5,
+                                            }}>
+                                                <div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--color-warning)' }}>
+                                                    Suggestions:
+                                                </div>
+                                                <ul style={{ margin: 0, paddingLeft: 16, color: 'color-mix(in srgb, var(--color-warning) 85%, black)' }}>
+                                                    {draftScore.feedback.map((item, i) => (
+                                                        <li key={i} style={{ marginBottom: 2 }}>{item}</li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        )}
+
+                                        {/* Draft Actions */}
+                                        <div style={{
+                                            display: 'flex',
+                                            gap: 8,
+                                            padding: '12px 16px',
+                                            borderTop: '1px solid var(--color-border)',
+                                            background: 'var(--color-surface-raised)',
+                                        }}>
+                                            {!draftScore.passesThreshold && (
+                                                <button
+                                                    onClick={async () => {
+                                                        if (!confirm('Regenerate draft? This will replace the current message.')) return;
+
+                                                        try {
+                                                            const linkedJob = contact.job_id ? jobs.find(j => j.id === contact.job_id) : null;
+                                                            const resumeContext = await extractResumeContext(linkedJob);
+                                                            const newDraft = await generateDraftMessage({
+                                                                contact,
+                                                                jobTitle: linkedJob?.title,
+                                                                companyName: contact.company_name,
+                                                                resumeContext
+                                                            });
+                                                            onContactUpdated({ ...contact, drafted_message: newDraft });
+                                                        } catch (err) {
+                                                            toast.error('Failed to regenerate: ' + (err as Error).message);
+                                                        }
+                                                    }}
+                                                    style={{
+                                                        flex: 1,
+                                                        padding: '8px 12px',
+                                                        borderRadius: 6,
+                                                        border: '1px solid var(--color-warning)',
+                                                        background: 'rgba(251, 191, 36, 0.08)',
+                                                        color: 'var(--color-warning)',
+                                                        fontSize: 12,
+                                                        fontWeight: 500,
+                                                        cursor: 'pointer',
+                                                        transition: 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        gap: 6,
+                                                    }}
+                                                    onMouseEnter={(e) => {
+                                                        e.currentTarget.style.background = 'rgba(251, 191, 36, 0.15)';
+                                                        e.currentTarget.style.borderColor = 'rgba(251, 191, 36, 0.6)';
+                                                        e.currentTarget.style.transform = 'translateY(-1px)';
+                                                        e.currentTarget.style.boxShadow = '0 2px 8px rgba(251, 191, 36, 0.15)';
+                                                    }}
+                                                    onMouseLeave={(e) => {
+                                                        e.currentTarget.style.background = 'rgba(251, 191, 36, 0.08)';
+                                                        e.currentTarget.style.borderColor = 'var(--color-warning)';
+                                                        e.currentTarget.style.transform = 'translateY(0)';
+                                                        e.currentTarget.style.boxShadow = 'none';
+                                                    }}
+                                                    onMouseDown={(e) => {
+                                                        e.currentTarget.style.transform = 'translateY(0) scale(0.98)';
+                                                    }}
+                                                    onMouseUp={(e) => {
+                                                        e.currentTarget.style.transform = 'translateY(-1px) scale(1)';
+                                                    }}
+                                                >
+                                                    <span style={{ fontSize: 14 }}>↻</span>
+                                                    Regenerate Draft
+                                                </button>
+                                            )}
+
+                                            {draftScore.passesThreshold && (
+                                                <button
+                                                    onClick={async () => {
+                                                        await navigator.clipboard.writeText(contact.drafted_message!);
+                                                        toast.success('Draft copied to clipboard!', {
+                                                            description: 'Paste into your email client and send.'
+                                                        });
+                                                    }}
+                                                    style={{
+                                                        flex: 1,
+                                                        padding: '8px 12px',
+                                                        borderRadius: 6,
+                                                        border: 'none',
+                                                        background: 'var(--color-success)',
+                                                        color: 'white',
+                                                        fontSize: 12,
+                                                        fontWeight: 500,
+                                                        cursor: 'pointer',
+                                                        transition: 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        gap: 6,
+                                                    }}
+                                                    onMouseEnter={(e) => {
+                                                        e.currentTarget.style.transform = 'translateY(-1px)';
+                                                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(34, 197, 94, 0.3)';
+                                                        e.currentTarget.style.filter = 'brightness(1.05)';
+                                                    }}
+                                                    onMouseLeave={(e) => {
+                                                        e.currentTarget.style.transform = 'translateY(0)';
+                                                        e.currentTarget.style.boxShadow = 'none';
+                                                        e.currentTarget.style.filter = 'brightness(1)';
+                                                    }}
+                                                    onMouseDown={(e) => {
+                                                        e.currentTarget.style.transform = 'translateY(0) scale(0.98)';
+                                                    }}
+                                                    onMouseUp={(e) => {
+                                                        e.currentTarget.style.transform = 'translateY(-1px) scale(1)';
+                                                    }}
+                                                >
+                                                    <span style={{ fontSize: 14 }}>✓</span>
+                                                    Accept & Copy
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}
@@ -370,8 +624,270 @@ export default function ContactDetail({ contact, jobs, onClose, onStateChange: _
                             {contact.notes || <span style={{ color: 'var(--color-text-disabled)' }}>No notes yet...</span>}
                         </div>
                     )}
+
+                    {/* Outcome Tracking — Response status */}
+                    {['contacted', 'replied', 'interviewing', 'rejected'].includes(contact.state) && (
+                        <>
+                            <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)', marginTop: 24, marginBottom: 12 }}>
+                                Response
+                            </h3>
+                            {/* Response Tracking - INTERACTIVE */}
+                            {contact.state === 'contacted' && contact.got_response === null && (
+                                <div style={{
+                                    padding: '12px 14px',
+                                    background: 'var(--color-surface-raised)',
+                                    borderRadius: 8,
+                                    border: '1px solid var(--color-border)',
+                                }}>
+                                    <div style={{
+                                        fontSize: 11,
+                                        fontWeight: 600,
+                                        color: 'var(--color-text-secondary)',
+                                        marginBottom: 10,
+                                        letterSpacing: '0.3px',
+                                        textTransform: 'uppercase',
+                                    }}>
+                                        Track Response
+                                    </div>
+                                    <div style={{ display: 'flex', gap: 8 }}>
+                                        <button
+                                            onClick={async () => {
+                                                try {
+                                                    await updateContactResponse(contact.id, true);
+                                                    await addContactInteraction(
+                                                        contact.id,
+                                                        'Received reply',
+                                                        'Manually marked as replied'
+                                                    );
+
+                                                    onContactUpdated({
+                                                        ...contact,
+                                                        got_response: true,
+                                                        state: 'replied',
+                                                        interaction_log: [
+                                                            ...(contact.interaction_log || []),
+                                                            {
+                                                                timestamp: new Date().toISOString(),
+                                                                event: 'Received reply',
+                                                                notes: 'Manually marked as replied'
+                                                            }
+                                                        ]
+                                                    });
+                                                } catch (err) {
+                                                    toast.error((err as Error).message);
+                                                }
+                                            }}
+                                            style={{
+                                                flex: 1,
+                                                padding: '8px 12px',
+                                                borderRadius: 6,
+                                                border: 'none',
+                                                background: 'var(--color-success)',
+                                                color: 'white',
+                                                fontSize: 12,
+                                                fontWeight: 500,
+                                                cursor: 'pointer',
+                                                transition: 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
+                                            }}
+                                            onMouseEnter={(e) => {
+                                                e.currentTarget.style.transform = 'translateY(-1px)';
+                                                e.currentTarget.style.boxShadow = '0 4px 12px rgba(34, 197, 94, 0.25)';
+                                            }}
+                                            onMouseLeave={(e) => {
+                                                e.currentTarget.style.transform = 'translateY(0)';
+                                                e.currentTarget.style.boxShadow = 'none';
+                                            }}
+                                            onMouseDown={(e) => {
+                                                e.currentTarget.style.transform = 'translateY(0) scale(0.98)';
+                                            }}
+                                            onMouseUp={(e) => {
+                                                e.currentTarget.style.transform = 'translateY(-1px) scale(1)';
+                                            }}
+                                        >
+                                            ✓ Got Reply
+                                        </button>
+
+                                        <button
+                                            onClick={async () => {
+                                                try {
+                                                    await updateContactResponse(contact.id, false);
+                                                    await addContactInteraction(
+                                                        contact.id,
+                                                        'No response received',
+                                                        'Manually marked as ghosted'
+                                                    );
+
+                                                    onContactUpdated({
+                                                        ...contact,
+                                                        got_response: false,
+                                                        interaction_log: [
+                                                            ...(contact.interaction_log || []),
+                                                            {
+                                                                timestamp: new Date().toISOString(),
+                                                                event: 'No response received',
+                                                                notes: 'Manually marked as ghosted'
+                                                            }
+                                                        ]
+                                                    });
+                                                } catch (err) {
+                                                    toast.error((err as Error).message);
+                                                }
+                                            }}
+                                            style={{
+                                                flex: 1,
+                                                padding: '8px 12px',
+                                                borderRadius: 6,
+                                                border: '1px solid var(--color-border)',
+                                                background: 'var(--color-surface)',
+                                                color: 'var(--color-text-secondary)',
+                                                fontSize: 12,
+                                                fontWeight: 500,
+                                                cursor: 'pointer',
+                                                transition: 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
+                                            }}
+                                            onMouseEnter={(e) => {
+                                                e.currentTarget.style.borderColor = 'var(--color-text-tertiary)';
+                                                e.currentTarget.style.background = 'var(--color-surface-container)';
+                                            }}
+                                            onMouseLeave={(e) => {
+                                                e.currentTarget.style.borderColor = 'var(--color-border)';
+                                                e.currentTarget.style.background = 'var(--color-surface)';
+                                            }}
+                                            onMouseDown={(e) => {
+                                                e.currentTarget.style.transform = 'scale(0.98)';
+                                            }}
+                                            onMouseUp={(e) => {
+                                                e.currentTarget.style.transform = 'scale(1)';
+                                            }}
+                                        >
+                                            No Response
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Response Status - DISPLAY (after marked) */}
+                            {contact.got_response !== null && (
+                                <div style={{
+                                    padding: '10px 14px',
+                                    borderRadius: 6,
+                                    background: contact.got_response
+                                        ? 'var(--color-success-container)'
+                                        : 'var(--color-surface-raised)',
+                                    border: contact.got_response
+                                        ? '1px solid rgba(34, 197, 94, 0.2)'
+                                        : '1px solid var(--color-border)',
+                                    fontSize: 13,
+                                    fontWeight: 500,
+                                    color: contact.got_response
+                                        ? 'var(--color-success)'
+                                        : 'var(--color-text-secondary)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                }}>
+                                    <span style={{
+                                        fontSize: 14,
+                                        lineHeight: 1,
+                                    }}>
+                                        {contact.got_response ? '✓' : '✗'}
+                                    </span>
+                                    {contact.got_response ? 'Received reply' : 'No response'}
+                                </div>
+                            )}
+
+                            {/* Interaction Log */}
+                            {contact.interaction_log && contact.interaction_log.length > 0 && (
+                                <div style={{ marginTop: 12 }}>
+                                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: 6 }}>
+                                        Interaction History
+                                    </div>
+                                    {contact.interaction_log.map((entry, i) => (
+                                        <div key={i} style={{
+                                            padding: '8px 10px',
+                                            background: 'var(--color-surface)',
+                                            border: '1px solid var(--color-border)',
+                                            borderRadius: 4,
+                                            marginBottom: 6,
+                                            fontSize: 11,
+                                        }}>
+                                            <div style={{ fontWeight: 500, color: 'var(--color-text-primary)', marginBottom: 2 }}>
+                                                {entry.event}
+                                            </div>
+                                            {entry.notes && (
+                                                <div style={{ color: 'var(--color-text-secondary)', marginBottom: 4 }}>
+                                                    {entry.notes}
+                                                </div>
+                                            )}
+                                            <div style={{ color: 'var(--color-text-disabled)', fontSize: 10 }}>
+                                                {timeAgo(entry.timestamp)}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </>
+                    )}
+
+                    {/* Linked Job Callback Tracking */}
+                    {linkedJob && (
+                        <>
+                            <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)', marginTop: 24, marginBottom: 12 }}>
+                                Application Outcome
+                            </h3>
+                            <div style={{
+                                padding: '10px 12px',
+                                background: 'var(--color-surface-raised)',
+                                border: '1px solid var(--color-border)',
+                                borderRadius: 6,
+                            }}>
+                                <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 8 }}>
+                                    {linkedJob.title} at {linkedJob.company}
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                                    {linkedJob.got_callback === null && (
+                                        <span style={{ fontSize: 13, color: 'var(--color-text-disabled)' }}>⏳ No response yet</span>
+                                    )}
+                                    {linkedJob.got_callback === true && (
+                                        <span style={{ fontSize: 13, color: 'var(--color-success)', fontWeight: 500 }}>✓ Got callback</span>
+                                    )}
+                                    {linkedJob.got_callback === false && (
+                                        <span style={{ fontSize: 13, color: 'var(--color-error)' }}>✗ Rejected</span>
+                                    )}
+                                </div>
+                                {linkedJob.callback_notes && (
+                                    <div style={{
+                                        padding: '8px 10px',
+                                        background: 'var(--color-surface)',
+                                        border: '1px solid var(--color-border)',
+                                        borderRadius: 4,
+                                        fontSize: 11,
+                                        color: 'var(--color-text-secondary)',
+                                        lineHeight: 1.5,
+                                    }}>
+                                        <div style={{ fontWeight: 600, marginBottom: 4, color: 'var(--color-text-primary)' }}>
+                                            What resonated:
+                                        </div>
+                                        {linkedJob.callback_notes}
+                                    </div>
+                                )}
+                            </div>
+                        </>
+                    )}
                 </div>
             </div>
+
+            {/* Enrichment Modal */}
+            {showEnrichModal && (
+                <EnrichContactModal
+                    contact={contact}
+                    onClose={() => setShowEnrichModal(false)}
+                    onUpdated={(updatedContact) => {
+                        onContactUpdated(updatedContact);
+                        setShowEnrichModal(false);
+                    }}
+                />
+            )}
         </div>
     );
 }
@@ -389,6 +905,35 @@ function TimelineEvent({ label, date, highlight, action }: { label: string; date
             {action}
             <span style={{ fontSize: 11, color: 'var(--color-text-disabled)', marginLeft: 'auto', whiteSpace: 'nowrap' }}>
                 {timeAgo(date)}
+            </span>
+        </div>
+    );
+}
+
+function ScoreBar({ label, score }: { label: string; score: number }) {
+    const color = score >= 70 ? 'var(--color-success)' : score >= 50 ? 'var(--color-warning)' : 'var(--color-error)';
+
+    return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 11, color: 'var(--color-text-secondary)', width: 70 }}>
+                {label}
+            </span>
+            <div style={{
+                flex: 1,
+                height: 6,
+                background: 'var(--color-surface-container)',
+                borderRadius: 3,
+                overflow: 'hidden',
+            }}>
+                <div style={{
+                    height: '100%',
+                    width: `${score}%`,
+                    background: color,
+                    transition: 'width 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                }} />
+            </div>
+            <span style={{ fontSize: 11, fontWeight: 500, color, width: 30, textAlign: 'right' }}>
+                {score}
             </span>
         </div>
     );

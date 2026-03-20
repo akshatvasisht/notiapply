@@ -1,6 +1,7 @@
-/** LLM integration for draft message generation */
+/** LLM integration for draft message generation with multi-provider support */
 
-import type { Contact, UserConfig } from './types';
+import { logger } from './logger';
+import type { Contact, UserConfig, LLMProvider } from './types';
 import { getUserConfig } from './db';
 
 export interface DraftMessageRequest {
@@ -8,13 +9,20 @@ export interface DraftMessageRequest {
     jobTitle?: string;
     companyName?: string;
     tone?: string;
+    resumeContext?: string;  // User's key skills/experience for value prop
+}
+
+interface LLMRequest {
+    systemPrompt: string;
+    userPrompt: string;
+    maxTokens: number;
+    temperature: number;
 }
 
 /**
  * Generate a personalized outreach message using LLM
  *
- * Uses the configured LLM endpoint (Gemini, OpenAI, etc.) to generate
- * context-aware messages based on contact info and job details.
+ * Supports multiple LLM providers: OpenAI, Anthropic, Gemini
  */
 export async function generateDraftMessage(request: DraftMessageRequest): Promise<string> {
     const config = await getUserConfig();
@@ -23,32 +31,25 @@ export async function generateDraftMessage(request: DraftMessageRequest): Promis
         throw new Error('LLM endpoint not configured. Please update settings.');
     }
 
-    const { contact, jobTitle, companyName, tone = config.crm_message_tone ?? 'professional' } = request;
+    const { contact, jobTitle, companyName, tone = config.crm_message_tone ?? 'professional', resumeContext } = request;
 
-    const prompt = buildPrompt(contact, jobTitle, companyName, tone);
+    const prompt = buildPrompt(contact, jobTitle, companyName, tone, resumeContext);
+
+    const llmRequest: LLMRequest = {
+        systemPrompt: 'You are an expert at crafting ultra-concise, high-conversion cold outreach messages for LinkedIn and email. Your messages follow the proven 3-sentence formula: Hook → Value → CTA. Keep it under 60 words, direct, and genuine. No fluff or formalities.',
+        userPrompt: prompt,
+        maxTokens: 200,  // Reduced from 300 to enforce brevity
+        temperature: 0.7,
+    };
 
     try {
+        const provider = config.llm_provider ?? 'gemini';
+        const requestBody = buildProviderRequest(provider, llmRequest, config);
+
         const response = await fetch(config.llm_endpoint, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${config.llm_api_key}`,
-            },
-            body: JSON.stringify({
-                model: config.llm_model ?? 'gemini-1.5-flash',
-                messages: [
-                    {
-                        role: 'system',
-                        content: 'You are a professional career advisor helping craft concise, personalized outreach messages for job seekers. Keep messages under 150 words, warm but professional.',
-                    },
-                    {
-                        role: 'user',
-                        content: prompt,
-                    },
-                ],
-                max_tokens: 300,
-                temperature: 0.7,
-            }),
+            headers: buildProviderHeaders(provider, config.llm_api_key),
+            body: JSON.stringify(requestBody),
         });
 
         if (!response.ok) {
@@ -56,14 +57,70 @@ export async function generateDraftMessage(request: DraftMessageRequest): Promis
         }
 
         const data = await response.json();
-
-        // Handle different LLM response formats
-        const message = extractMessage(data);
+        const message = extractMessage(data, provider);
 
         return message.trim();
     } catch (error) {
-        console.error('Draft message generation failed:', error);
+        logger.error('Draft message generation failed', 'llm', error);
         throw new Error('Failed to generate message. Check LLM configuration.');
+    }
+}
+
+// ─── Provider-Specific Request Builders ────────────────────────────────────
+
+export function buildProviderHeaders(provider: LLMProvider, apiKey: string): Record<string, string> {
+    const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+    };
+
+    switch (provider) {
+        case 'openai':
+        case 'gemini':
+            headers['Authorization'] = `Bearer ${apiKey}`;
+            break;
+        case 'anthropic':
+            headers['x-api-key'] = apiKey;
+            headers['anthropic-version'] = '2023-06-01';
+            break;
+    }
+
+    return headers;
+}
+
+export function buildProviderRequest(
+    provider: LLMProvider,
+    request: LLMRequest,
+    config: UserConfig
+): Record<string, unknown> {
+    const { systemPrompt, userPrompt, maxTokens, temperature } = request;
+
+    switch (provider) {
+        case 'openai':
+        case 'gemini':
+            // OpenAI-compatible format (Gemini uses OpenAI-compatible API)
+            return {
+                model: config.llm_model ?? 'gemini-1.5-flash',
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userPrompt },
+                ],
+                max_tokens: maxTokens,
+                temperature,
+            };
+
+        case 'anthropic':
+            return {
+                model: config.llm_model ?? 'claude-3-5-sonnet-20241022',
+                system: systemPrompt,
+                messages: [
+                    { role: 'user', content: userPrompt },
+                ],
+                max_tokens: maxTokens,
+                temperature,
+            };
+
+        default:
+            throw new Error(`Unsupported LLM provider: ${provider}`);
     }
 }
 
@@ -97,7 +154,7 @@ export async function generateBatchMessages(
                 await new Promise(resolve => setTimeout(resolve, 500));
             }
         } catch (error) {
-            console.error(`Failed to generate message for contact ${contact.id}:`, error);
+            logger.error(`Failed to generate message for contact ${contact.id}`, 'llm', error);
             // Continue with other contacts even if one fails
         }
     }
@@ -107,60 +164,121 @@ export async function generateBatchMessages(
 
 // ─── Helper Functions ───────────────────────────────────────────────────────
 
+/**
+ * Sanitize user input to prevent prompt injection attacks
+ * Removes newlines and limiting instruction-like patterns
+ */
+function sanitizeForPrompt(text: string): string {
+    return text
+        .replace(/\n/g, ' ')  // Remove newlines
+        .replace(/\r/g, '')   // Remove carriage returns
+        .replace(/IGNORE|DISREGARD|OVERRIDE|SYSTEM:|ASSISTANT:/gi, '') // Remove command-like words
+        .substring(0, 200)    // Limit length
+        .trim();
+}
+
 function buildPrompt(
     contact: Contact,
     jobTitle?: string,
     companyName?: string,
-    tone: string = 'professional'
+    tone: string = 'professional',
+    resumeContext?: string
 ): string {
     const parts: string[] = [];
 
-    parts.push(`Write a ${tone} outreach message to ${contact.name}`);
+    // Sanitize all user-controlled inputs to prevent prompt injection
+    const safeName = sanitizeForPrompt(contact.name);
+    const safeRole = contact.role ? sanitizeForPrompt(contact.role) : null;
+    const safeCompany = sanitizeForPrompt(contact.company_name);
+    const safeJobTitle = jobTitle ? sanitizeForPrompt(jobTitle) : null;
+    const safeResumeContext = resumeContext ? sanitizeForPrompt(resumeContext) : null;
 
-    if (contact.role) {
-        parts.push(`who is a ${contact.role}`);
+    // Build context for LLM
+    parts.push(`Write a concise LinkedIn/cold outreach message to ${safeName}`);
+
+    if (safeRole) {
+        parts.push(`who is a ${safeRole}`);
     }
 
-    parts.push(`at ${contact.company_name}.`);
+    parts.push(`at ${safeCompany}.`);
 
-    if (jobTitle) {
-        parts.push(`\n\nContext: I'm interested in the ${jobTitle} role at ${companyName ?? contact.company_name}.`);
+    if (safeJobTitle) {
+        parts.push(`\n\nContext: Reaching out about the ${safeJobTitle} role at ${companyName ? sanitizeForPrompt(companyName) : safeCompany}.`);
+    }
+
+    if (safeResumeContext) {
+        parts.push(`\n\nMy background: ${safeResumeContext}`);
     }
 
     if (contact.company_industry) {
-        parts.push(`\n\nCompany background: ${contact.company_name} is in the ${contact.company_industry} industry.`);
+        const safeIndustry = sanitizeForPrompt(contact.company_industry);
+        parts.push(`\nCompany: ${safeCompany} (${safeIndustry} industry).`);
     }
 
     if (contact.linkedin_posts_summary) {
-        parts.push(`\n\nRecent activity: ${contact.linkedin_posts_summary}`);
+        const safeSummary = sanitizeForPrompt(contact.linkedin_posts_summary);
+        parts.push(`\nRecent activity: ${safeSummary}`);
     }
 
-    parts.push(`\n\nRequirements:
-- Under 150 words
-- Personalized and specific
-- Express genuine interest
-- Request a brief conversation
-- Professional but warm tone
-- DO NOT use placeholders like [Your Name] - leave signature blank`);
+    // Provide template structure based on best practices
+    parts.push(`\n\nFormat (3 sentences max):
+1. Opening: "Hi [Name], I saw your hiring for [ROLE] at [COMPANY]."
+2. Value prop: "My experience in [SPECIFIC SKILL/AREA] would be a great fit."
+3. CTA: "Would love to connect and discuss!"
+
+Requirements:
+- MAXIMUM 3 sentences (50-60 words total)
+- Use contact's actual name (${safeName})
+- Reference the specific role${safeJobTitle ? ` (${safeJobTitle})` : ''}
+- Mention 1-2 specific relevant skills/experiences
+- End with simple CTA: "Would love to connect and discuss!"
+- ${sanitizeForPrompt(tone)} tone
+- NO placeholders like [Your Name] - leave unsigned
+- NO formality or fluff - keep it direct and genuine`);
 
     return parts.join(' ');
 }
 
-function extractMessage(data: any): string {
-    // OpenAI format
-    if (data.choices?.[0]?.message?.content) {
-        return data.choices[0].message.content;
+export function extractMessage(data: unknown, provider: LLMProvider): string {
+    if (!data || typeof data !== 'object') {
+        throw new Error(`Invalid ${provider} response: not an object`);
     }
 
-    // Gemini format
-    if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
-        return data.candidates[0].content.parts[0].text;
+    const res = data as Record<string, unknown>;
+
+    switch (provider) {
+        case 'openai':
+        case 'gemini':
+            // OpenAI format (also used by Gemini's OpenAI-compatible API)
+            if (Array.isArray(res.choices) && res.choices.length > 0) {
+                const choice = res.choices[0] as Record<string, unknown>;
+                const message = choice.message as Record<string, unknown>;
+                if (typeof message?.content === 'string') {
+                    return message.content;
+                }
+            }
+            // Fallback to Gemini native format
+            if (Array.isArray(res.candidates) && res.candidates.length > 0) {
+                const candidate = res.candidates[0] as Record<string, unknown>;
+                const content = candidate.content as Record<string, unknown>;
+                if (Array.isArray(content?.parts) && content.parts.length > 0) {
+                    const part = content.parts[0] as Record<string, unknown>;
+                    if (typeof part?.text === 'string') {
+                        return part.text;
+                    }
+                }
+            }
+            break;
+
+        case 'anthropic':
+            if (Array.isArray(res.content) && res.content.length > 0) {
+                const block = res.content[0] as Record<string, unknown>;
+                if (typeof block?.text === 'string') {
+                    return block.text;
+                }
+            }
+            break;
     }
 
-    // Anthropic format
-    if (data.content?.[0]?.text) {
-        return data.content[0].text;
-    }
-
-    throw new Error('Unexpected LLM response format');
+    throw new Error(`Unexpected ${provider} response format: ${JSON.stringify(data)}`);
 }

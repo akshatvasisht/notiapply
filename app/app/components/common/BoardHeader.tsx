@@ -92,6 +92,7 @@ export default function BoardHeader({
                             placeholder={searchPlaceholder}
                             value={searchQuery}
                             onChange={e => onSearchChange(e.target.value)}
+                            aria-label={searchPlaceholder}
                             style={{
                                 width: '100%',
                                 height: 36,
@@ -162,6 +163,7 @@ export default function BoardHeader({
                         <button
                             onClick={onOpenSettings}
                             title="Settings"
+                            aria-label="Open settings"
                             style={{
                                 width: 36, height: 36,
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',

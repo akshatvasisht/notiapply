@@ -1,15 +1,26 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { getUserConfig } from '@/lib/db';
 import type { UserConfig } from '@/lib/types';
 import Board from '@/app/components/board/JobsBoard';
 import ContactsBoard from '@/app/components/board/ContactsBoard';
-import SetupWizard from '@/app/components/wizard/SetupWizard';
 import WelcomeScreen from '@/app/components/wizard/WelcomeScreen';
 import BoardHeader from '@/app/components/common/BoardHeader';
 import ViewToggle from '@/app/components/common/ViewToggle';
-import SettingsPage from '@/app/components/settings/SettingsPage';
+import PoolCleanup from '@/app/components/common/PoolCleanup';
+
+// Lazy-load heavy components that are conditionally rendered
+const SetupWizard = dynamic(() => import('@/app/components/wizard/SetupWizard'), {
+  loading: () => <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontSize: 14, color: 'var(--color-text-secondary)' }}>Loading setup...</div>,
+  ssr: false
+});
+
+const SettingsPage = dynamic(() => import('@/app/components/settings/SettingsPage'), {
+  loading: () => <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontSize: 14, color: 'var(--color-text-secondary)' }}>Loading settings...</div>,
+  ssr: false
+});
 
 export default function Home() {
   const [config, setConfig] = useState<UserConfig | null>(null);
@@ -54,8 +65,10 @@ export default function Home() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', background: 'var(--color-surface)' }}>
-      <BoardHeader
+    <>
+      <PoolCleanup />
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', background: 'var(--color-surface)' }}>
+        <BoardHeader
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         searchPlaceholder={activeView === 'jobs' ? 'Search by title, company, location…' : 'Search by name, role or company…'}
@@ -83,6 +96,7 @@ export default function Home() {
           />
         )}
       </div>
-    </div>
+      </div>
+    </>
   );
 }

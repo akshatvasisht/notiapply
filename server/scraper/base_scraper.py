@@ -7,17 +7,29 @@ from openai import OpenAI
 from typing import List, Dict, Any, Type, Optional
 from scrapling import Fetcher
 from pydantic import BaseModel
+from datetime import datetime
+import subprocess
+import time
+import random
 
 class BaseScraper(abc.ABC):
     """
     Base scraper class using Scrapling for resilient extraction and
-    Instructor for structured LLM parsing.
+    Instructor for structured LLM parsing with run tracking.
     """
-    def __init__(self, db_url: str, api_key: str = None, base_url: str = None, model: str = "gpt-4o-mini", use_stealth: bool = True):
+    def __init__(self, db_url: str, scraper_key: str, api_key: str = None, base_url: str = None, model: str = "gpt-4o-mini", use_stealth: bool = True, user_criteria: Optional[Dict] = None, enable_relevance_filter: bool = False, min_delay: float = 2.0, max_delay: float = 5.0):
         self.db_url = db_url
+        self.scraper_key = scraper_key
         self.use_stealth = use_stealth
         self.fetcher = Fetcher(stealth=self.use_stealth, auto_match=False if not use_stealth else True)
-        
+        self.run_id: Optional[int] = None
+        self.errors: List[str] = []
+        self.enable_relevance_filter = enable_relevance_filter
+        self.relevance_scorer = None
+        # Rate limiting to mimic human behavior and avoid detection
+        self.min_delay = min_delay
+        self.max_delay = max_delay
+
         # Instructor-patched LLM client
         if api_key:
             self.client = instructor.patch(OpenAI(api_key=api_key, base_url=base_url))
@@ -25,6 +37,24 @@ class BaseScraper(abc.ABC):
         else:
             self.client = None
             self.model = None
+
+        # Optional relevance filtering
+        if enable_relevance_filter and api_key and user_criteria:
+            from .job_relevance import JobRelevanceScorer
+            self.relevance_scorer = JobRelevanceScorer(
+                api_key=api_key,
+                base_url=base_url,
+                model=model,
+                user_criteria=user_criteria
+            )
+
+    def _respectful_delay(self):
+        """
+        Add random delay between requests to mimic human browsing behavior.
+        This helps avoid detection and respects server resources.
+        """
+        delay = random.uniform(self.min_delay, self.max_delay)
+        time.sleep(delay)
 
     @staticmethod
     def dedup_hash(company: str, title: str, location: str) -> str:
@@ -38,6 +68,52 @@ class BaseScraper(abc.ABC):
 
     def get_connection(self):
         return psycopg2.connect(self.db_url)
+
+    def get_version(self) -> str:
+        """Get git commit hash for tracking code versions"""
+        try:
+            result = subprocess.run(
+                ['git', 'rev-parse', '--short', 'HEAD'],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            return result.stdout.strip() if result.returncode == 0 else 'unknown'
+        except (subprocess.SubprocessError, subprocess.TimeoutExpired, OSError, FileNotFoundError):
+            return 'unknown'
+
+    def start_run(self):
+        """Log scraper run start"""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO scraper_runs (scraper_key, status, version)
+                    VALUES (%s, 'running', %s)
+                    RETURNING id
+                """, (self.scraper_key, self.get_version()))
+                self.run_id = cur.fetchone()[0]
+                conn.commit()
+
+    def complete_run(self, jobs_found: int, status: str = 'success'):
+        """Log scraper run completion"""
+        if self.run_id is None:
+            return
+
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE scraper_runs
+                    SET completed_at = NOW(),
+                        jobs_found = %s,
+                        errors = %s,
+                        status = %s
+                    WHERE id = %s
+                """, (jobs_found, self.errors if self.errors else None, status, self.run_id))
+                conn.commit()
+
+    def log_error(self, error: str):
+        """Add error to run log"""
+        self.errors.append(f"{datetime.now().isoformat()}: {error}")
 
     def extract_structured(self, text: str, response_model: Type[BaseModel], system_prompt: str = "Extract information from the following text.") -> BaseModel:
         """Use Instructor to extract structured data from raw text."""
@@ -69,57 +145,69 @@ class BaseScraper(abc.ABC):
 
     def save_jobs(self, jobs: List[Dict[str, Any]]) -> int:
         jobs_added = 0
-        conn = self.get_connection()
-        cur = conn.cursor()
-        try:
-            for job in jobs:
-                h = self.dedup_hash(job["company"], job["title"], job["location"])
-                cur.execute("""
-                    INSERT INTO jobs (source, title, company, location, url,
-                                     description_raw, salary_min, salary_max,
-                                     equity_min, equity_max,
-                                     company_role_location_hash)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (company_role_location_hash) DO NOTHING
-                """, (
-                    job["source"], job["title"], job["company"], job["location"],
-                    job["url"], job["description_raw"],
-                    job.get("salary_min"), job.get("salary_max"),
-                    job.get("equity_min"), job.get("equity_max"), h
-                ))
-                if cur.rowcount > 0:
-                    jobs_added += 1
-            conn.commit()
-        except Exception as e:
-            conn.rollback()
-            raise e
-        finally:
-            cur.close()
-            conn.close()
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                try:
+                    for job in jobs:
+                        h = self.dedup_hash(job["company"], job["title"], job["location"])
+
+                        # Apply relevance filtering if enabled
+                        initial_state = 'discovered'
+                        if self.relevance_scorer:
+                            try:
+                                score = self.relevance_scorer.score_job(
+                                    title=job["title"],
+                                    description=job["description_raw"],
+                                    company=job["company"]
+                                )
+                                # Auto-filter if not relevant or has red flags
+                                if not score.is_relevant or len(score.red_flags) > 0:
+                                    initial_state = 'filtered-out'
+                                    self.log_error(f"Auto-filtered: {job['title']} (score: {score.overall_score}, red_flags: {score.red_flags})")
+                            except Exception as e:
+                                self.log_error(f"Relevance scoring failed for {job['title']}: {str(e)}")
+                                # Continue without filtering on error
+
+                        cur.execute("""
+                            INSERT INTO jobs (source, title, company, location, url,
+                                             description_raw, salary_min, salary_max,
+                                             equity_min, equity_max,
+                                             company_role_location_hash, state)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            ON CONFLICT (company_role_location_hash) DO NOTHING
+                        """, (
+                            job["source"], job["title"], job["company"], job["location"],
+                            job["url"], job["description_raw"],
+                            job.get("salary_min"), job.get("salary_max"),
+                            job.get("equity_min"), job.get("equity_max"), h, initial_state
+                        ))
+                        if cur.rowcount > 0:
+                            jobs_added += 1
+                    conn.commit()
+                except Exception as e:
+                    conn.rollback()
+                    raise e
         return jobs_added
 
     def save_contacts(self, contacts: List[Dict[str, Any]]) -> int:
         contacts_added = 0
-        conn = self.get_connection()
-        cur = conn.cursor()
-        try:
-            for contact in contacts:
-                h = self.contact_hash(contact["name"], contact["company_name"])
-                cur.execute("""
-                    INSERT INTO contacts (name, role, company_name, linkedin_url, email, contact_hash)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (contact_hash) DO NOTHING
-                """, (
-                    contact["name"], contact.get("role"), contact["company_name"], 
-                    contact.get("linkedin_url"), contact.get("email"), h
-                ))
-                if cur.rowcount > 0:
-                    contacts_added += 1
-            conn.commit()
-        except Exception as e:
-            conn.rollback()
-            raise e
-        finally:
-            cur.close()
-            conn.close()
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                try:
+                    for contact in contacts:
+                        h = self.contact_hash(contact["name"], contact["company_name"])
+                        cur.execute("""
+                            INSERT INTO contacts (name, role, company_name, linkedin_url, email, contact_hash)
+                            VALUES (%s, %s, %s, %s, %s, %s)
+                            ON CONFLICT (contact_hash) DO NOTHING
+                        """, (
+                            contact["name"], contact.get("role"), contact["company_name"],
+                            contact.get("linkedin_url"), contact.get("email"), h
+                        ))
+                        if cur.rowcount > 0:
+                            contacts_added += 1
+                    conn.commit()
+                except Exception as e:
+                    conn.rollback()
+                    raise e
         return contacts_added

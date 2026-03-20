@@ -1,0 +1,67 @@
+{
+  "target_roles": [
+    "Data Engineer",
+    "ML Engineer",
+    "Machine Learning Engineer",
+    "MLOps Engineer",
+    "AI/ML Engineer",
+    "Backend Engineer",
+    "Software Engineer"
+  ],
+
+  "required_skills": [
+    "Python",
+    "SQL"
+  ],
+
+  "preferred_skills": [
+    "PyTorch",
+    "TensorFlow",
+    "Scikit-learn",
+    "Pandas",
+    "NumPy",
+    "Docker",
+    "Kubernetes",
+    "AWS",
+    "PostgreSQL",
+    "Spark",
+    "Airflow",
+    "FastAPI",
+    "LLM",
+    "Transformers"
+  ],
+
+  "exclude_keywords": [
+    "senior",
+    "staff",
+    "principal",
+    "lead",
+    "manager",
+    "sales",
+    "unpaid",
+    "commission",
+    "volunteer",
+    "internship"
+  ],
+
+  "min_experience_years": 0,
+  "max_experience_years": 3,
+
+  "remote_only": false,
+
+  "location_preferences": [
+    "San Francisco",
+    "New York",
+    "Remote",
+    "Bay Area",
+    "Seattle",
+    "Austin",
+    "Boston"
+  ],
+
+  "company_preferences": {
+    "stages": ["Seed", "Series A", "Series B", "Series C", "Series D", "Public"],
+    "min_employees": 10,
+    "exclude_types": ["consulting", "agency", "outsourcing"]
+  }
+}

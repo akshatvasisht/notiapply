@@ -11,23 +11,26 @@ import psycopg2
 from base_scraper import BaseScraper
 
 
-API_ENDPOINTS = {
-    "greenhouse": "https://boards-api.greenhouse.io/v1/boards/{slug}/jobs",
-    "lever": "https://api.lever.co/v0/postings/{slug}",
-    "ashby": "https://api.ashbyhq.com/posting-api/job-board/{slug}",
-}
+def get_api_endpoint(platform: str, slug: str) -> str:
+    """Get the API endpoint URL for the given platform and company slug"""
+    endpoints = {
+        "greenhouse": f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs",
+        "lever": f"https://api.lever.co/v0/postings/{slug}",
+        "ashby": f"https://api.ashbyhq.com/posting-api/job-board/{slug}",
+    }
+    return endpoints.get(platform, "")
 
 
 class ATSScraper(BaseScraper):
     def __init__(self, db_url: str):
         super().__init__(db_url, use_stealth=False)
-        
+
     def extract_jobs(self, platform: str, slug: str, company_name: str) -> list:
-        url_template = API_ENDPOINTS.get(platform)
-        if not url_template:
+        url = get_api_endpoint(platform, slug)
+        if not url:
             return []
-            
-        url = url_template.format(slug=slug)
+        # Rate limiting: respectful delay before request
+        self._respectful_delay()
         resp = self.fetcher.get(url)
 
         try:

@@ -1,13 +1,14 @@
 'use client';
 
 import MetricChip from '@/app/components/common/MetricChip';
-import type { ATSFailure, AutomationStats, SourceCoverage } from '@/lib/types';
+import type { ATSFailure, AutomationStats, SourceCoverage, CallbackStats } from '@/lib/types';
 
 export interface JobMetricsCompactProps {
     atsFailures: ATSFailure[];
     automationStats: AutomationStats;
     lastScrapeTime: Date | null;
     sourceCoverage: SourceCoverage;
+    callbackStats: CallbackStats;
 }
 
 /**
@@ -20,6 +21,7 @@ export default function JobMetricsCompact({
     automationStats,
     lastScrapeTime,
     sourceCoverage,
+    callbackStats,
 }: JobMetricsCompactProps) {
     const totalFailures = atsFailures.reduce((sum, f) => sum + f.fill_failed_count, 0);
     const timeSince = getTimeSinceLastScrape(lastScrapeTime);
@@ -71,6 +73,17 @@ export default function JobMetricsCompact({
                     tooltip={`${sourceCoverage.active} of ${sourceCoverage.total} job board scrapers are enabled. Enable more in Settings for broader coverage.`}
                     variant={sourceCoverage.active < 2 ? 'warning' : 'default'}
                     showIcon={sourceCoverage.active < 2}
+                />
+            )}
+
+            {/* Callback/Interview Rate - most important success metric */}
+            {callbackStats.total_applications > 0 && (
+                <MetricChip
+                    value={`${callbackStats.callback_rate}%`}
+                    label="Interview Rate"
+                    tooltip={`${callbackStats.total_callbacks} interviews from ${callbackStats.total_applications} submitted apps. Target: 5-15%.`}
+                    variant={callbackStats.callback_rate >= 10 ? 'success' : callbackStats.callback_rate < 3 ? 'warning' : 'default'}
+                    showIcon={callbackStats.callback_rate >= 10 || callbackStats.callback_rate < 3}
                 />
             )}
         </>

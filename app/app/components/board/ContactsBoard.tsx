@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import { getContacts, updateContactState, getJobs } from '@/lib/db';
 import type { Contact, ContactBoardColumn, Job } from '@/lib/types';
 import { CONTACT_COLUMN_STATES, CONTACT_COLUMN_LABELS } from '@/lib/types';
@@ -9,9 +10,15 @@ import { generateBatchMessages } from '@/lib/llm';
 import ContactColumn from './ContactColumn';
 import ContactMetricsCompact from './metrics/ContactMetricsCompact';
 import ContactActions from './actions/ContactActions';
-import ContactDetail from './ContactDetail';
+import ContactReminders from './ContactReminders';
 import Modal from '../common/Modal';
 import Toast from '../common/Toast';
+
+// Lazy-load the heavy ContactDetail modal (928 lines)
+const ContactDetail = dynamic(() => import('./ContactDetail'), {
+    loading: () => <div style={{ padding: 24, textAlign: 'center', color: 'var(--color-text-secondary)' }}>Loading...</div>,
+    ssr: false
+});
 
 
 export interface ContactsBoardProps {
@@ -253,6 +260,22 @@ export default function ContactsBoard({
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
             {mockDataBanner}
+            <ContactReminders
+                contacts={contacts}
+                onFilterOverdue={() => {
+                    // Filter to show only overdue contacts
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const overdueIds = contacts
+                        .filter(c => {
+                            if (!c.follow_up_date) return false;
+                            const followUpDate = new Date(c.follow_up_date);
+                            return followUpDate <= today && ['contacted', 'replied'].includes(c.state);
+                        })
+                        .map(c => c.id);
+                    setSelectedContactIds(new Set(overdueIds));
+                }}
+            />
 
             <div style={{
                 display: 'flex', flex: 1, gap: 8, padding: '8px 12px',
@@ -282,6 +305,10 @@ export default function ContactsBoard({
                         jobs={jobs}
                         onClose={() => { setFocusedContact(null); refresh(); }}
                         onStateChange={handleStateChange}
+                        onContactUpdated={(updatedContact) => {
+                            setFocusedContact(updatedContact);
+                            refresh();
+                        }}
                     />
                 </Modal>
             )}

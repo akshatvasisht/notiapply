@@ -6,14 +6,12 @@ export interface ContactActionsProps {
     identifiedCount: number;
     onDraftMessages?: () => void;
     onExportCSV?: () => void;
-    onImportLinkedIn?: () => void;
 }
 
 export default function ContactActions({
     identifiedCount,
     onDraftMessages,
     onExportCSV,
-    onImportLinkedIn,
 }: ContactActionsProps) {
     const [menuOpen, setMenuOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
@@ -103,16 +101,6 @@ export default function ContactActions({
                             sublabel="Download contacts list"
                             onClick={() => {
                                 onExportCSV?.();
-                                setMenuOpen(false);
-                            }}
-                        />
-                        <div style={{ height: 1, background: 'var(--color-outline-variant)', margin: '8px 0' }} />
-                        <MenuItem
-                            label="🔗 Import from LinkedIn"
-                            sublabel="Coming soon"
-                            disabled={true}
-                            onClick={() => {
-                                onImportLinkedIn?.();
                                 setMenuOpen(false);
                             }}
                         />

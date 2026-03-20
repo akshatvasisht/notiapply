@@ -1,0 +1,58 @@
+{
+  "_comment": "User criteria for LLM-based job relevance pre-filtering",
+  "_usage": "Copy to relevance_criteria.json and customize. Pass to scraper via --criteria flag",
+
+  "target_roles": [
+    "Software Engineer",
+    "Backend Engineer",
+    "Full Stack Engineer",
+    "ML Engineer",
+    "Data Engineer"
+  ],
+
+  "required_skills": [
+    "Python",
+    "APIs"
+  ],
+
+  "preferred_skills": [
+    "FastAPI",
+    "PostgreSQL",
+    "Docker",
+    "LLM",
+    "PyTorch",
+    "React"
+  ],
+
+  "exclude_keywords": [
+    "sales",
+    "unpaid",
+    "commission",
+    "MLM",
+    "senior",
+    "staff",
+    "principal"
+  ],
+
+  "min_experience_years": 0,
+  "max_experience_years": 3,
+
+  "remote_only": false,
+
+  "location_preferences": [
+    "San Francisco",
+    "New York",
+    "Remote",
+    "Bay Area"
+  ],
+
+  "salary_preferences": {
+    "min_base": 80000,
+    "currency": "USD"
+  },
+
+  "company_preferences": {
+    "stages": ["Seed", "Series A", "Series B", "Series C", "Public"],
+    "exclude_types": ["consulting", "agency"]
+  }
+}

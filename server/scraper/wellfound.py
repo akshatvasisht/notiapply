@@ -14,24 +14,27 @@ from base_scraper import BaseScraper
 
 class WellfoundScraper(BaseScraper):
     def __init__(self, db_url: str):
-        super().__init__(db_url, use_stealth=True)
+        super().__init__(db_url, scraper_key='wellfound', use_stealth=True)
         
     def extract_jobs(self, search_terms: list, locations: list) -> list:
         jobs = []
         for term in search_terms:
             slug = term.lower().replace(" ", "-")
             url = f"https://wellfound.com/role/l/{slug}/united-states"
-            
+
             try:
+                # Rate limiting: respectful delay before request
+                self._respectful_delay()
                 resp = self.fetcher.get(url)
-                
+
                 next_data_script = resp.css('script#__NEXT_DATA__')
                 if not next_data_script:
+                    self.log_error(f"No __NEXT_DATA__ found for {url}")
                     continue
-                
+
                 next_data = json.loads(next_data_script[0].text)
                 props = next_data.get("props", {}).get("pageProps", {})
-                
+
                 ssg_data = props.get("urqlState", {})
                 for key, val in ssg_data.items():
                     if isinstance(val, dict) and "data" in val:
@@ -42,7 +45,7 @@ class WellfoundScraper(BaseScraper):
                                     company_name = startup.get("name", "Unknown")
                                     raw_locations = highlight_listing.get("locationNames", ["Unknown"])
                                     loc_str = ", ".join(raw_locations) if isinstance(raw_locations, list) else raw_locations
-                                    
+
                                     equity_text = highlight_listing.get("equity")
                                     equity_min, equity_max = None, None
                                     if equity_text:
@@ -63,7 +66,8 @@ class WellfoundScraper(BaseScraper):
                                         "equity_min": equity_min,
                                         "equity_max": equity_max,
                                     })
-            except Exception:
+            except Exception as e:
+                self.log_error(f"Error scraping {url}: {str(e)}")
                 continue
 
         return jobs
@@ -82,16 +86,19 @@ def run(db_url: str, module_config: dict):
     locations = config.get("locations", [])
 
     scraper = WellfoundScraper(db_url)
-    errors = []
     jobs_added = 0
-    
+
     try:
+        scraper.start_run()
         scraped = scraper.extract_jobs(search_terms, locations)
         jobs_added = scraper.save_jobs(scraped)
+        scraper.complete_run(jobs_added, status='success')
     except Exception as e:
-        errors.append(f"Wellfound Scraper Error: {str(e)}")
+        scraper.log_error(f"Fatal error: {str(e)}")
+        scraper.complete_run(0, status='failed')
+        raise
 
-    return {"jobs_added": jobs_added, "errors": errors}
+    return {"jobs_added": jobs_added, "errors": scraper.errors}
 
 
 if __name__ == "__main__":

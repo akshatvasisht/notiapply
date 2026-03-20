@@ -142,6 +142,29 @@ export default function SettingsPage({ onBack }: { onBack: () => void }) {
 
                 {/* LLM */}
                 <Section title="LLM">
+                    <div style={{ marginBottom: 12 }}>
+                        <label htmlFor="llm-provider-select" style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-tertiary)', display: 'block', marginBottom: 4 }}>Provider</label>
+                        <select
+                            id="llm-provider-select"
+                            value={config.llm_provider ?? 'openai'}
+                            onChange={e => patch({ llm_provider: e.target.value as any })}
+                            style={{
+                                width: '100%',
+                                padding: '8px 12px',
+                                fontSize: 13,
+                                borderRadius: 6,
+                                border: '1px solid var(--color-border)',
+                                background: 'var(--color-surface)',
+                                color: 'var(--color-text-primary)',
+                                outline: 'none'
+                            }}
+                        >
+                            <option value="openai">OpenAI</option>
+                            <option value="anthropic">Anthropic</option>
+                            <option value="gemini">Google Gemini</option>
+                            <option value="local">Local LLM (Ollama, LM Studio)</option>
+                        </select>
+                    </div>
                     <FieldWithTest
                         label="Endpoint"
                         value={config.llm_endpoint ?? ''}
@@ -166,8 +189,145 @@ export default function SettingsPage({ onBack }: { onBack: () => void }) {
                             }
                         }}
                     />
-                    <Field label="API Key" value={config.llm_api_key ?? ''} onChange={v => patch({ llm_api_key: v })} type="password" />
-                    <Field label="Model" value={config.llm_model ?? 'gemini-1.5-flash'} onChange={v => patch({ llm_model: v })} />
+                    <Field label="API Key" value={config.llm_api_key ?? ''} onChange={v => patch({ llm_api_key: v })} type="password" placeholder="Optional for local LLMs" />
+                    <Field label="Model" value={config.llm_model ?? 'gemini-1.5-flash'} onChange={v => patch({ llm_model: v })} placeholder="e.g. gpt-4o-mini, claude-3-5-sonnet-20241022" />
+                </Section>
+
+                {/* Browser Agent */}
+                <Section title="Browser Agent (AI Automation)">
+                    <div style={{ marginBottom: 12 }}>
+                        <label htmlFor="browser-agent-enabled" style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: 8 }}>
+                            <input
+                                id="browser-agent-enabled"
+                                type="checkbox"
+                                checked={config.browser_agent_enabled ?? false}
+                                onChange={e => patch({ browser_agent_enabled: e.target.checked })}
+                                style={{ accentColor: 'var(--color-primary)' }}
+                            />
+                            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-primary)' }}>Enable Browser Agent</span>
+                        </label>
+                        <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginTop: 4, marginLeft: 24 }}>
+                            Use LLM to automate ATS account creation, login, and form filling
+                        </p>
+                    </div>
+                    {config.browser_agent_enabled && (
+                        <>
+                            <div style={{ marginBottom: 12 }}>
+                                <label htmlFor="browser-agent-auto-login" style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: 8 }}>
+                                    <input
+                                        id="browser-agent-auto-login"
+                                        type="checkbox"
+                                        checked={config.browser_agent_auto_login ?? false}
+                                        onChange={e => patch({ browser_agent_auto_login: e.target.checked })}
+                                        style={{ accentColor: 'var(--color-primary)' }}
+                                    />
+                                    <span style={{ fontSize: 13, color: 'var(--color-text-primary)' }}>Auto-login & Account Creation</span>
+                                </label>
+                                <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginTop: 4, marginLeft: 24 }}>
+                                    Automatically create accounts and log in when session expires
+                                </p>
+                            </div>
+                            <div style={{ marginBottom: 12 }}>
+                                <label htmlFor="browser-agent-fallback" style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: 8 }}>
+                                    <input
+                                        id="browser-agent-fallback"
+                                        type="checkbox"
+                                        checked={config.browser_agent_fallback ?? false}
+                                        onChange={e => patch({ browser_agent_fallback: e.target.checked })}
+                                        style={{ accentColor: 'var(--color-primary)' }}
+                                    />
+                                    <span style={{ fontSize: 13, color: 'var(--color-text-primary)' }}>Form Filling Fallback</span>
+                                </label>
+                                <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginTop: 4, marginLeft: 24 }}>
+                                    Fill fields that Simplify extension misses
+                                </p>
+                            </div>
+                            <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--color-border)' }}>
+                                <p style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-secondary)', marginBottom: 8 }}>
+                                    Your Profile
+                                </p>
+                                <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 12 }}>
+                                    Used for ATS account creation and email verification.
+                                </p>
+                                <Field
+                                    label="Email"
+                                    value={config.user_email ?? ''}
+                                    onChange={v => patch({ user_email: v })}
+                                    type="email"
+                                    placeholder="your.email@example.com"
+                                />
+                                <Field
+                                    label="Email Password (for verification)"
+                                    value={config.user_email_password ?? ''}
+                                    onChange={v => patch({ user_email_password: v })}
+                                    type="password"
+                                    placeholder="App-specific password (IMAP access)"
+                                />
+                                <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 4, marginBottom: 12 }}>
+                                    Gmail users: Run <code style={{ background: 'var(--color-surface-container)', padding: '2px 4px', borderRadius: 3 }}>python server/gmail_watcher.py --auth</code> for faster verification<br/>
+                                    Others: Use app-specific password (auto-detects IMAP)
+                                </p>
+                                <Field
+                                    label="First Name"
+                                    value={config.user_first_name ?? ''}
+                                    onChange={v => patch({ user_first_name: v })}
+                                    placeholder="John"
+                                />
+                                <Field
+                                    label="Last Name"
+                                    value={config.user_last_name ?? ''}
+                                    onChange={v => patch({ user_last_name: v })}
+                                    placeholder="Doe"
+                                />
+                                <Field
+                                    label="Phone (optional)"
+                                    value={config.user_phone ?? ''}
+                                    onChange={v => patch({ user_phone: v })}
+                                    type="tel"
+                                    placeholder="+1 (555) 123-4567"
+                                />
+                            </div>
+
+                            <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--color-border)' }}>
+                                <p style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-secondary)', marginBottom: 8 }}>
+                                    ATS Platform Password
+                                </p>
+                                <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 12 }}>
+                                    Password for ATS accounts (Workday, Greenhouse, etc.). <strong>Separate from your email password.</strong>
+                                </p>
+                                <Field
+                                    label="ATS Password"
+                                    value={config.ats_password ?? ''}
+                                    onChange={v => patch({ ats_password: v })}
+                                    type="password"
+                                    placeholder="Password for ATS platforms"
+                                />
+                            </div>
+
+                            <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--color-border)' }}>
+                                <p style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-secondary)', marginBottom: 8 }}>
+                                    Advanced Settings (Optional)
+                                </p>
+                                <Field
+                                    label="IMAP Host Override"
+                                    value={config.email_imap_host ?? ''}
+                                    onChange={v => patch({ email_imap_host: v })}
+                                    placeholder="Auto-detected for common providers"
+                                />
+                                <Field
+                                    label="Email Verification Timeout (seconds)"
+                                    value={config.email_verification_timeout ? String(config.email_verification_timeout / 1000) : '120'}
+                                    onChange={v => {
+                                        const seconds = parseInt(v) || 120;
+                                        const clamped = Math.max(30, Math.min(600, seconds)); // 30s - 10min
+                                        patch({ email_verification_timeout: clamped * 1000 });
+                                    }}
+                                    type="number"
+                                    placeholder="120"
+                                />
+                            </div>
+                        </>
+                    )}
                 </Section>
 
                 {/* Search & Filter */}
@@ -203,18 +363,6 @@ export default function SettingsPage({ onBack }: { onBack: () => void }) {
                         onChange={v => patch({ linkedin_cookie: v })}
                         type="password"
                         placeholder="li_at cookie value"
-                    />
-                    <Field
-                        label="Email SMTP Host (optional)"
-                        value={config.smtp_host ?? ''}
-                        onChange={v => patch({ smtp_host: v })}
-                        placeholder="smtp.gmail.com"
-                    />
-                    <Field
-                        label="Email SMTP Port (optional)"
-                        value={config.smtp_port ?? ''}
-                        onChange={v => patch({ smtp_port: v })}
-                        placeholder="587"
                     />
                 </Section>
 
@@ -289,8 +437,8 @@ function SortableModuleRow({ module: mod, expanded, onToggle, onExpand, onConfig
                     ⋮⋮
                 </div>
 
-                <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: 8, flex: 1 }}>
-                    <input type="checkbox" checked={mod.enabled} onChange={e => onToggle(e.target.checked)}
+                <label htmlFor={`module-${mod.id}-enabled`} style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: 8, flex: 1 }}>
+                    <input id={`module-${mod.id}-enabled`} type="checkbox" checked={mod.enabled} onChange={e => onToggle(e.target.checked)}
                         style={{ accentColor: 'var(--color-primary)' }} />
                     <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-primary)' }}>{mod.name}</span>
                 </label>
@@ -365,9 +513,10 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function Field({ label, value, onChange, type = 'text', placeholder }: {
     label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string;
 }) {
+    const inputId = `field-${label.toLowerCase().replace(/\s+/g, '-')}`;
     return (
         <div style={{ marginBottom: 12 }}>
-            <label style={{
+            <label htmlFor={inputId} style={{
                 fontSize: 12,
                 fontWeight: 500,
                 color: 'var(--color-on-surface-variant)',
@@ -377,6 +526,7 @@ function Field({ label, value, onChange, type = 'text', placeholder }: {
                 {label}
             </label>
             <input
+                id={inputId}
                 value={value}
                 onChange={e => onChange(e.target.value)}
                 type={type}
@@ -405,6 +555,7 @@ function FieldWithTest({ label, value, onChange, type = 'text', placeholder, onT
 }) {
     const [testing, setTesting] = useState(false);
     const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
+    const inputId = `field-test-${label.toLowerCase().replace(/\s+/g, '-')}`;
 
     const handleTest = async () => {
         setTesting(true);
@@ -417,7 +568,7 @@ function FieldWithTest({ label, value, onChange, type = 'text', placeholder, onT
 
     return (
         <div style={{ marginBottom: 12 }}>
-            <label style={{
+            <label htmlFor={inputId} style={{
                 fontSize: 12,
                 fontWeight: 500,
                 color: 'var(--color-on-surface-variant)',
@@ -428,6 +579,7 @@ function FieldWithTest({ label, value, onChange, type = 'text', placeholder, onT
             </label>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <input
+                    id={inputId}
                     value={value}
                     onChange={e => onChange(e.target.value)}
                     type={type}
@@ -484,10 +636,11 @@ function FieldWithTest({ label, value, onChange, type = 'text', placeholder, onT
 
 function TagFieldInline({ label, tags, onChange }: { label: string; tags: string[]; onChange: (t: string[]) => void }) {
     const [input, setInput] = useState('');
+    const inputId = `tag-field-${label.toLowerCase().replace(/\s+/g, '-')}`;
     const addTag = () => { const v = input.trim(); if (v && !tags.includes(v)) onChange([...tags, v]); setInput(''); };
     return (
         <div style={{ marginBottom: 12 }}>
-            <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-tertiary)', display: 'block', marginBottom: 4 }}>{label}</label>
+            <label htmlFor={inputId} style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-tertiary)', display: 'block', marginBottom: 4 }}>{label}</label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'var(--color-surface)', minHeight: 36 }}>
                 {tags.map(t => (
                     <span key={t} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 4, fontSize: 12, background: 'var(--color-primary-container)', color: 'var(--color-primary)' }}>
@@ -495,7 +648,7 @@ function TagFieldInline({ label, tags, onChange }: { label: string; tags: string
                         <button onClick={() => onChange(tags.filter(x => x !== t))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 16, padding: 0, lineHeight: 1 }} aria-label={`Remove ${t}`}>×</button>
                     </span>
                 ))}
-                <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addTag(); } }} onBlur={addTag}
+                <input id={inputId} value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addTag(); } }} onBlur={addTag}
                     style={{ flex: 1, minWidth: 80, border: 'none', outline: 'none', fontSize: 13, background: 'transparent', color: 'var(--color-text-primary)' }} />
             </div>
         </div>
@@ -517,8 +670,8 @@ function AddModuleModal({ onClose, onAdd }: {
                 <Field label="Module Name" value={name} onChange={setName} />
                 <Field label="Description" value={desc} onChange={setDesc} />
                 <div style={{ marginBottom: 12 }}>
-                    <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-tertiary)', display: 'block', marginBottom: 4 }}>Phase</label>
-                    <select value={phase} onChange={e => setPhase(e.target.value)} style={{ width: '100%', padding: '8px 12px', fontSize: 13, borderRadius: 6, border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-primary)', outline: 'none' }}>
+                    <label htmlFor="phase-select" style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-tertiary)', display: 'block', marginBottom: 4 }}>Phase</label>
+                    <select id="phase-select" value={phase} onChange={e => setPhase(e.target.value)} style={{ width: '100%', padding: '8px 12px', fontSize: 13, borderRadius: 6, border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-primary)', outline: 'none' }}>
                         <option value="scraping">Scraping</option>
                         <option value="processing">Processing</option>
                         <option value="output">Output</option>

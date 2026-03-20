@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { getJobs, getUserConfig, getATSFailures, getAutomationStats, getLastScrapeTime, getSourceCoverage } from '@/lib/db';
+import dynamic from 'next/dynamic';
+import { getJobs, getUserConfig, getATSFailures, getAutomationStats, getLastScrapeTime, getSourceCoverage, getCallbackAnalytics } from '@/lib/db';
 import { startFillSession, triggerPipelineRun } from '@/lib/tauri';
 import { logger } from '@/lib/logger';
-import type { Job, BoardColumn, SidecarEvent, UserConfig, ATSFailure, AutomationStats, SourceCoverage } from '@/lib/types';
+import type { Job, BoardColumn, SidecarEvent, UserConfig, ATSFailure, AutomationStats, SourceCoverage, CallbackStats } from '@/lib/types';
 import { COLUMN_STATES, COLUMN_LABELS, SOURCE_LABELS } from '@/lib/types';
 import { MOCK_JOBS, MOCK_CONFIG } from '@/lib/mock-data';
 import JobMetricsCompact from './metrics/JobMetricsCompact';
@@ -12,11 +13,24 @@ import JobActions from './actions/JobActions';
 import Column from './Column';
 import SystemBanner from './SystemBanner';
 import Modal from '../common/Modal';
-import FocusMode from '../focus/FocusMode';
-import SettingsPage from '../settings/SettingsPage';
 import CompaniesPage from '../settings/CompaniesPage';
-import ShortcutsModal from '../help/ShortcutsModal';
 import Toast, { type ToastType } from '../common/Toast';
+
+// Lazy-load heavy conditionally-rendered components
+const FocusMode = dynamic(() => import('../focus/FocusMode'), {
+    loading: () => <div style={{ padding: 24, textAlign: 'center', color: 'var(--color-text-secondary)' }}>Loading focus mode...</div>,
+    ssr: false
+});
+
+const SettingsPage = dynamic(() => import('../settings/SettingsPage'), {
+    loading: () => <div style={{ padding: 24, textAlign: 'center', color: 'var(--color-text-secondary)' }}>Loading settings...</div>,
+    ssr: false
+});
+
+const ShortcutsModal = dynamic(() => import('../help/ShortcutsModal'), {
+    loading: () => <div style={{ padding: 24, textAlign: 'center', color: 'var(--color-text-secondary)' }}>Loading shortcuts...</div>,
+    ssr: false
+});
 
 
 type View = 'board' | 'settings' | 'companies';
@@ -55,6 +69,7 @@ export default function Board({
     const [automationStats, setAutomationStats] = useState<AutomationStats>({ rate: 0, automated: 0, total: 0 });
     const [lastScrapeTime, setLastScrapeTime] = useState<Date | null>(null);
     const [sourceCoverage, setSourceCoverage] = useState<SourceCoverage>({ active: 0, total: 4 });
+    const [callbackStats, setCallbackStats] = useState<CallbackStats>({ total_applications: 0, total_callbacks: 0, callback_rate: 0 });
 
     const refresh = useCallback(() => {
         getJobs()
@@ -78,6 +93,7 @@ export default function Board({
         getAutomationStats().then(setAutomationStats).catch(() => setAutomationStats({ rate: 0, automated: 0, total: 0 }));
         getLastScrapeTime().then(setLastScrapeTime).catch(() => setLastScrapeTime(null));
         getSourceCoverage().then(setSourceCoverage).catch(() => setSourceCoverage({ active: 0, total: 4 }));
+        getCallbackAnalytics().then(setCallbackStats).catch(() => setCallbackStats({ total_applications: 0, total_callbacks: 0, callback_rate: 0 }));
     }, []);
 
     useEffect(() => {
@@ -119,6 +135,7 @@ export default function Board({
                     automationStats={automationStats}
                     lastScrapeTime={lastScrapeTime}
                     sourceCoverage={sourceCoverage}
+                    callbackStats={callbackStats}
                 />
             );
         }
@@ -135,7 +152,7 @@ export default function Board({
                 />
             );
         }
-    }, [atsFailures, automationStats, lastScrapeTime, sourceCoverage, queuedCount, sessionRunning, sessionResult, scraping, onMetricsChange, onActionsChange]);
+    }, [atsFailures, automationStats, lastScrapeTime, sourceCoverage, callbackStats, queuedCount, sessionRunning, sessionResult, scraping, onMetricsChange, onActionsChange]);
 
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
@@ -251,14 +268,60 @@ export default function Board({
         />
     ) : null;
 
+    const browserAgentWarning = (config.browser_agent_enabled && !config.user_email) ? (
+        <div style={{
+            padding: '8px 16px',
+            background: 'var(--color-error-container)',
+            borderBottom: '1px solid var(--color-error)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 8,
+        }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--color-error)' }}>
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            <span style={{ fontSize: 13, color: 'var(--color-error)', fontWeight: 500 }}>
+                Browser Agent enabled but profile incomplete.
+            </span>
+            <button
+                onClick={() => setView('settings')}
+                style={{
+                    padding: '4px 8px',
+                    fontSize: 12,
+                    fontWeight: 500,
+                    color: 'var(--color-error)',
+                    background: 'transparent',
+                    border: '1px solid var(--color-error)',
+                    borderRadius: 4,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={e => {
+                    e.currentTarget.style.background = 'var(--color-error)';
+                    e.currentTarget.style.color = 'white';
+                }}
+                onMouseLeave={e => {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.color = 'var(--color-error)';
+                }}
+            >
+                Configure in Settings
+            </button>
+        </div>
+    ) : null;
+
     return (
         <>
             {/* Fixed position banners */}
             {sessionBanner}
 
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                {/* Inline banner at top */}
+                {/* Inline banners at top */}
                 {mockDataBanner}
+                {browserAgentWarning}
 
                 <div style={{
                     display: 'flex', flex: 1, gap: 8, padding: '8px 12px',

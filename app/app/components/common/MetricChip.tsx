@@ -114,7 +114,7 @@ export default function MetricChip({
                 >
                     <div
                         style={{
-                            background: '#FFFFFF',
+                            background: 'var(--color-surface-container)',
                             color: 'var(--color-on-surface)',
                             border: '1px solid var(--color-outline-variant)',
                             borderRadius: 8,
@@ -148,34 +148,6 @@ export default function MetricChip({
                         >
                             {tooltip}
                         </div>
-
-                        {/* Arrow */}
-                        <div
-                            style={{
-                                position: 'absolute',
-                                top: -5,
-                                left: '50%',
-                                transform: 'translateX(-50%)',
-                                width: 0,
-                                height: 0,
-                                borderLeft: '5px solid transparent',
-                                borderRight: '5px solid transparent',
-                                borderBottom: '5px solid var(--color-outline-variant)',
-                            }}
-                        />
-                        <div
-                            style={{
-                                position: 'absolute',
-                                top: -4,
-                                left: '50%',
-                                transform: 'translateX(-50%)',
-                                width: 0,
-                                height: 0,
-                                borderLeft: '5px solid transparent',
-                                borderRight: '5px solid transparent',
-                                borderBottom: '5px solid #FFFFFF',
-                            }}
-                        />
                     </div>
                 </div>
             )}

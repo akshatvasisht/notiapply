@@ -3,9 +3,10 @@
 import { useEffect, useState } from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
+import { toast } from 'sonner';
 import { logger } from '@/lib/logger';
 import type { Job, Application } from '@/lib/types';
-import { getApplicationByJobId, updateJobState } from '@/lib/db';
+import { getApplicationByJobId, updateJobState, updateJobCallback, getJobById } from '@/lib/db';
 import { SOURCE_LABELS, SOURCE_COLORS, getCardBorderColor } from '@/lib/types';
 import { timeAgo, formatSalary } from '@/lib/utils';
 import CompanyAvatar from '../common/CompanyAvatar';
@@ -88,6 +89,18 @@ export default function FocusMode({ job, onBack }: FocusModeProps) {
   const handleAction = async (newState: string) => {
     await updateJobState(currentJob.id, newState);
     setCurrentJob({ ...currentJob, state: newState as Job['state'] });
+  };
+
+  const refreshJobData = async () => {
+    try {
+      const updated = await getJobById(currentJob.id);
+      if (updated) {
+        setCurrentJob(updated);
+      }
+    } catch (err) {
+      logger.error('Failed to refresh job data', 'FocusMode', err);
+      toast.error('Failed to refresh job data');
+    }
   };
 
   const salary = formatSalary(currentJob.salary_min, currentJob.salary_max);
@@ -244,6 +257,160 @@ export default function FocusMode({ job, onBack }: FocusModeProps) {
           {application?.fill_started_at && <TimelineEvent label="Fill started" date={application.fill_started_at} />}
           {application?.fill_completed_at && <TimelineEvent label="Fill completed" date={application.fill_completed_at} />}
           {application?.submitted_at && <TimelineEvent label="Submitted" date={application.submitted_at} />}
+
+          {/* Callback Tracking */}
+          {['submitted', 'tracking'].includes(currentJob.state) && (
+            <>
+              <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)', marginTop: 24, marginBottom: 12 }}>
+                Outcome
+              </h3>
+              {/* Callback Tracking - INTERACTIVE */}
+              {currentJob.state === 'submitted' && currentJob.got_callback === null && (
+                <div style={{
+                  padding: '16px 18px',
+                  background: 'var(--color-surface-raised)',
+                  borderRadius: 8,
+                  border: '1px solid var(--color-border)',
+                }}>
+                  <div style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: 'var(--color-text-secondary)',
+                    marginBottom: 12,
+                    letterSpacing: '0.3px',
+                  }}>
+                    Did you get a callback?
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      onClick={async () => {
+                        const notes = prompt('Add callback notes (optional):') || '';
+                        try {
+                          await updateJobCallback(currentJob.id, true, notes);
+                          await refreshJobData();
+                          toast.success('Callback recorded!');
+                        } catch (err) {
+                          toast.error((err as Error).message);
+                        }
+                      }}
+                      style={{
+                        flex: 1,
+                        padding: '10px 16px',
+                        borderRadius: 6,
+                        border: 'none',
+                        background: 'var(--color-success)',
+                        color: 'white',
+                        fontSize: 13,
+                        fontWeight: 500,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'translateY(-1px)';
+                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(34, 197, 94, 0.3)';
+                        e.currentTarget.style.filter = 'brightness(1.05)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = 'none';
+                        e.currentTarget.style.filter = 'brightness(1)';
+                      }}
+                      onMouseDown={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0) scale(0.98)';
+                      }}
+                      onMouseUp={(e) => {
+                        e.currentTarget.style.transform = 'translateY(-1px) scale(1)';
+                      }}
+                    >
+                      ✓ Got Callback
+                    </button>
+
+                    <button
+                      onClick={async () => {
+                        try {
+                          await updateJobCallback(currentJob.id, false, 'No callback received');
+                          await refreshJobData();
+                          toast.info('Marked as no callback');
+                        } catch (err) {
+                          toast.error((err as Error).message);
+                        }
+                      }}
+                      style={{
+                        flex: 1,
+                        padding: '10px 16px',
+                        borderRadius: 6,
+                        border: '1px solid var(--color-border)',
+                        background: 'var(--color-surface)',
+                        color: 'var(--color-text-secondary)',
+                        fontSize: 13,
+                        fontWeight: 500,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = 'var(--color-text-tertiary)';
+                        e.currentTarget.style.background = 'var(--color-surface-container)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = 'var(--color-border)';
+                        e.currentTarget.style.background = 'var(--color-surface)';
+                      }}
+                      onMouseDown={(e) => {
+                        e.currentTarget.style.transform = 'scale(0.98)';
+                      }}
+                      onMouseUp={(e) => {
+                        e.currentTarget.style.transform = 'scale(1)';
+                      }}
+                    >
+                      No Callback
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Callback Status - DISPLAY (after marked) */}
+              {currentJob.got_callback !== null && (
+                <div style={{
+                  padding: '14px 18px',
+                  borderRadius: 8,
+                  background: currentJob.got_callback
+                    ? 'var(--color-success-container)'
+                    : 'var(--color-surface-raised)',
+                  border: currentJob.got_callback
+                    ? '1px solid rgba(34, 197, 94, 0.2)'
+                    : '1px solid var(--color-border)',
+                }}>
+                  <div style={{
+                    fontSize: 14,
+                    fontWeight: 500,
+                    color: currentJob.got_callback
+                      ? 'var(--color-success)'
+                      : 'var(--color-text-secondary)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    marginBottom: currentJob.got_callback && currentJob.callback_notes ? 8 : 0,
+                  }}>
+                    <span style={{ fontSize: 16, lineHeight: 1 }}>
+                      {currentJob.got_callback ? '✓' : '○'}
+                    </span>
+                    {currentJob.got_callback ? 'Received callback' : 'No callback yet'}
+                  </div>
+
+                  {currentJob.got_callback && currentJob.callback_notes && (
+                    <div style={{
+                      fontSize: 13,
+                      color: 'var(--color-text-secondary)',
+                      paddingLeft: 24,
+                      lineHeight: 1.5,
+                    }}>
+                      {currentJob.callback_notes}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
 
           <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)', marginTop: 24, marginBottom: 12 }}>
             Notes

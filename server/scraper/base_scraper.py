@@ -2,15 +2,21 @@ import abc
 import hashlib
 import json
 import psycopg2
+from psycopg2 import extras as psycopg2_extras
 import instructor
 from openai import OpenAI
 from typing import List, Dict, Any, Type, Optional
 from scrapling import Fetcher
 from pydantic import BaseModel
 from datetime import datetime
+from .job_relevance import should_auto_filter
+from .log_config import configure_logging
+import structlog
 import subprocess
 import time
 import random
+
+configure_logging()
 
 class BaseScraper(abc.ABC):
     """
@@ -20,6 +26,7 @@ class BaseScraper(abc.ABC):
     def __init__(self, db_url: str, scraper_key: str, api_key: str = None, base_url: str = None, model: str = "gpt-4o-mini", use_stealth: bool = True, user_criteria: Optional[Dict] = None, enable_relevance_filter: bool = False, min_delay: float = 2.0, max_delay: float = 5.0):
         self.db_url = db_url
         self.scraper_key = scraper_key
+        self.log = structlog.get_logger().bind(scraper_key=self.scraper_key)
         self.use_stealth = use_stealth
         self.fetcher = Fetcher(stealth=self.use_stealth, auto_match=False if not use_stealth else True)
         self.run_id: Optional[int] = None
@@ -55,6 +62,26 @@ class BaseScraper(abc.ABC):
         """
         delay = random.uniform(self.min_delay, self.max_delay)
         time.sleep(delay)
+
+    def fetch_with_retry(self, url: str, max_retries: int = 3):
+        """Fetch URL with exponential backoff on failure or 429."""
+        for attempt in range(max_retries):
+            self._respectful_delay()
+            try:
+                resp = self.fetcher.get(url)
+                if hasattr(resp, 'status_code') and resp.status_code == 429:
+                    wait = (2 ** attempt) * random.uniform(0.8, 1.2)
+                    self.log.warning("rate_limited", url=url, retry_in=round(wait, 1))
+                    time.sleep(wait)
+                    continue
+                return resp
+            except Exception:
+                if attempt == max_retries - 1:
+                    raise
+                wait = (2 ** attempt) * random.uniform(0.8, 1.2)
+                self.log.warning("fetch_retry", url=url, attempt=attempt + 1, retry_in=round(wait, 1))
+                time.sleep(wait)
+        return resp
 
     @staticmethod
     def dedup_hash(company: str, title: str, location: str) -> str:
@@ -129,13 +156,6 @@ class BaseScraper(abc.ABC):
             ],
         )
 
-    async def crawl_url(self, url: str) -> str:
-        """Use crawl4ai to get clean markdown from a URL (Background task)."""
-        from crawl4ai import AsyncWebCrawler
-        async with AsyncWebCrawler(verbose=True) as crawler:
-            result = await crawler.arun(url=url)
-            return result.markdown
-
     @abc.abstractmethod
     def extract_jobs(self, *args, **kwargs) -> List[Dict[str, Any]]:
         pass
@@ -143,16 +163,21 @@ class BaseScraper(abc.ABC):
     def extract_contacts(self, *args, **kwargs) -> List[Dict[str, Any]]:
         return []
 
-    def save_jobs(self, jobs: List[Dict[str, Any]]) -> int:
+    def save_jobs(self, jobs: List[Dict[str, Any]], max_batch_size: int = 200) -> int:
         jobs_added = 0
+        if len(jobs) > max_batch_size:
+            self.log_error(f"Batch truncated: {len(jobs)} jobs received, capping at {max_batch_size}")
+            jobs = jobs[:max_batch_size]
         with self.get_connection() as conn:
             with conn.cursor() as cur:
                 try:
+                    rows = []
                     for job in jobs:
                         h = self.dedup_hash(job["company"], job["title"], job["location"])
 
-                        # Apply relevance filtering if enabled
                         initial_state = 'discovered'
+                        relevance_score = None
+                        score_breakdown = None
                         if self.relevance_scorer:
                             try:
                                 score = self.relevance_scorer.score_job(
@@ -160,29 +185,37 @@ class BaseScraper(abc.ABC):
                                     description=job["description_raw"],
                                     company=job["company"]
                                 )
-                                # Auto-filter if not relevant or has red flags
-                                if not score.is_relevant or len(score.red_flags) > 0:
+                                relevance_score = score.overall_score
+                                score_breakdown = json.dumps({
+                                    "reasons": score.reasons,
+                                    "red_flags": score.red_flags,
+                                    "match_highlights": score.match_highlights,
+                                })
+                                if should_auto_filter(score):
                                     initial_state = 'filtered-out'
                                     self.log_error(f"Auto-filtered: {job['title']} (score: {score.overall_score}, red_flags: {score.red_flags})")
                             except Exception as e:
                                 self.log_error(f"Relevance scoring failed for {job['title']}: {str(e)}")
-                                # Continue without filtering on error
 
-                        cur.execute("""
-                            INSERT INTO jobs (source, title, company, location, url,
-                                             description_raw, salary_min, salary_max,
-                                             equity_min, equity_max,
-                                             company_role_location_hash, state)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                            ON CONFLICT (company_role_location_hash) DO NOTHING
-                        """, (
+                        rows.append((
                             job["source"], job["title"], job["company"], job["location"],
                             job["url"], job["description_raw"],
                             job.get("salary_min"), job.get("salary_max"),
-                            job.get("equity_min"), job.get("equity_max"), h, initial_state
+                            job.get("equity_min"), job.get("equity_max"),
+                            h, initial_state, relevance_score, score_breakdown
                         ))
-                        if cur.rowcount > 0:
-                            jobs_added += 1
+
+                    if rows:
+                        psycopg2_extras.execute_values(cur, """
+                            INSERT INTO jobs (source, title, company, location, url,
+                                             description_raw, salary_min, salary_max,
+                                             equity_min, equity_max,
+                                             company_role_location_hash, state,
+                                             relevance_score, score_breakdown)
+                            VALUES %s
+                            ON CONFLICT (company_role_location_hash) DO NOTHING
+                        """, rows)
+                        jobs_added = cur.rowcount
                     conn.commit()
                 except Exception as e:
                     conn.rollback()
@@ -197,12 +230,13 @@ class BaseScraper(abc.ABC):
                     for contact in contacts:
                         h = self.contact_hash(contact["name"], contact["company_name"])
                         cur.execute("""
-                            INSERT INTO contacts (name, role, company_name, linkedin_url, email, contact_hash)
-                            VALUES (%s, %s, %s, %s, %s, %s)
+                            INSERT INTO contacts (name, role, company_name, linkedin_url, email, contact_hash, job_id, department, source)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                             ON CONFLICT (contact_hash) DO NOTHING
                         """, (
                             contact["name"], contact.get("role"), contact["company_name"],
-                            contact.get("linkedin_url"), contact.get("email"), h
+                            contact.get("linkedin_url"), contact.get("email"), h,
+                            contact.get("job_id"), contact.get("department"), contact.get("source")
                         ))
                         if cur.rowcount > 0:
                             contacts_added += 1

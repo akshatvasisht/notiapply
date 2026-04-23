@@ -13,15 +13,21 @@ import json
 import sys
 import os
 import psycopg2
+import structlog
 from typing import List, Dict, Optional
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from base_scraper import BaseScraper
 
+log = structlog.get_logger()
+
 
 class JobContactExtractor(BaseScraper):
     def __init__(self, db_url: str):
-        super().__init__(db_url, use_stealth=False)
+        super().__init__(db_url, 'extract-job-contacts', use_stealth=False)
+
+    def extract_jobs(self, *args, **kwargs):
+        return []
 
     def extract_contacts_from_job(self, job: Dict) -> List[Dict]:
         """
@@ -203,12 +209,12 @@ def run(db_url: str, module_config: dict):
 
     # Get jobs that don't have associated contacts yet
     cur.execute("""
-        SELECT j.id, j.title, j.description, j.company, j.ats_platform
+        SELECT j.id, j.title, j.description_raw, j.company
         FROM jobs j
         LEFT JOIN contacts c ON c.job_id = j.id
         WHERE c.id IS NULL
-        AND j.description IS NOT NULL
-        AND j.state = 'new'
+        AND j.description_raw IS NOT NULL
+        AND j.state IN ('discovered', 'filtered', 'queued')
         LIMIT 100
     """)
 
@@ -216,28 +222,27 @@ def run(db_url: str, module_config: dict):
     contacts_added = 0
     errors = []
 
-    print(f"Found {len(jobs)} jobs without contacts")
+    log.info("batch_start", jobs_without_contacts=len(jobs))
 
-    for job_id, title, description, company, ats_platform in jobs:
+    for job_id, title, description, company in jobs:
         try:
             job_data = {
                 'id': job_id,
                 'title': title,
                 'description': description,
                 'company_name': company,
-                'ats_platform': ats_platform
             }
 
             contacts = extractor.extract_contacts_from_job(job_data)
 
             if contacts:
-                print(f"Job {job_id} ({company}): Found {len(contacts)} contacts")
+                log.info("contacts_found", job_id=job_id, company=company, count=len(contacts))
                 contacts_added += extractor.save_contacts(contacts)
 
         except Exception as e:
             error_msg = f"Job {job_id}: {str(e)}"
             errors.append(error_msg)
-            print(f"ERROR: {error_msg}")
+            log.error("extraction_failed", job_id=job_id, error=error_msg)
 
     cur.close()
     conn.close()
@@ -250,12 +255,10 @@ def run(db_url: str, module_config: dict):
 
 
 if __name__ == "__main__":
+    from scraper.db_connect import get_db_url
+
     config_str = sys.argv[1] if len(sys.argv) > 1 else "{}"
     payload = json.loads(config_str)
 
-    if "db_url" not in payload:
-        sys.stderr.write("Error: db_url not provided in JSON payload\n")
-        sys.exit(1)
-
-    result = run(payload["db_url"], payload)
+    result = run(get_db_url(payload), payload)
     print(json.dumps(result))

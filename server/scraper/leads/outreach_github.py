@@ -15,8 +15,11 @@ from base_scraper import BaseScraper
 
 class GithubOutreachScraper(BaseScraper):
     def __init__(self, db_url: str):
-        super().__init__(db_url, use_stealth=False)
+        super().__init__(db_url, 'scrape-outreach-github', use_stealth=False)
         self.headers = {"Accept": "application/vnd.github.v3+json"}
+
+    def extract_jobs(self, *args, **kwargs):
+        return []
 
     def extract_contacts(self, org_names: list) -> list:
         contacts = []
@@ -78,12 +81,10 @@ def run(db_url: str, module_config: dict):
 
 
 if __name__ == "__main__":
+    from scraper.db_connect import get_db_url
+
     config_str = sys.argv[1] if len(sys.argv) > 1 else "{}"
     payload = json.loads(config_str)
-    
-    if "db_url" not in payload:
-        sys.stderr.write("Error: db_url not provided in JSON payload\\n")
-        sys.exit(1)
-        
-    result = run(payload["db_url"], payload)
+
+    result = run(get_db_url(payload), payload)
     print(json.dumps(result))

@@ -3,6 +3,7 @@ Test suite for BaseScraper class covering core functionality
 """
 import sys
 import os
+import subprocess
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime
@@ -233,7 +234,7 @@ class TestBaseScraper:
         """Test structured extraction fails gracefully without API key"""
         scraper.client = None
 
-        with pytest.raises(ValueError, match="Instructor client not initialized"):
+        with pytest.raises(ValueError, match="LLM client not initialized"):
             scraper.extract_structured(
                 text="Test text", response_model=TestModel, system_prompt="Extract"
             )

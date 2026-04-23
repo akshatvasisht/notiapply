@@ -1,34 +1,37 @@
-import asyncio
-from typing import Optional
-from crawl4ai import AsyncWebCrawler
+"""Fetch a URL and return clean markdown for LLM consumption.
+
+Standalone utility. Not yet wired into any pipeline — see
+agentcontext/OPEN_ISSUES.md (C-01) for the integration plan.
+"""
+
+import sys
+
+import trafilatura
+from scrapling import Fetcher
+
 
 class EnrichmentProcessor:
-    """
-    Processor to enrich job/contact context by crawling external sources.
-    Uses crawl4ai for token-efficient markdown extraction.
-    """
-    def __init__(self, verbose: bool = True):
-        self.verbose = verbose
+    def __init__(self, stealth: bool = True):
+        self.fetcher = Fetcher(stealth=stealth, auto_match=False)
 
-    async def enrich_url(self, url: str) -> str:
-        """
-        Crawls a URL and returns a clean markdown representation.
-        Ideal for Personal Blogs, About Us pages, or LinkedIn profiles.
-        """
-        async with AsyncWebCrawler(verbose=self.verbose) as crawler:
-            result = await crawler.arun(url=url)
-            if not result.success:
-                raise Exception(f"Failed to crawl {url}: {result.error_message}")
-            
-            # Return cleaned markdown for LLM consumption
-            return result.markdown
+    def enrich_url(self, url: str) -> str:
+        """Fetch URL, strip boilerplate, return markdown. Raises on failure."""
+        resp = self.fetcher.get(url)
+        status = getattr(resp, "status_code", None)
+        if status is not None and status >= 400:
+            raise RuntimeError(f"fetch failed: {url} -> HTTP {status}")
+        markdown = trafilatura.extract(
+            resp.body,
+            output_format="markdown",
+            include_links=True,
+            include_tables=True,
+        )
+        if not markdown:
+            raise RuntimeError(f"extraction failed for {url}")
+        return markdown
 
-    def run_sync(self, url: str) -> str:
-        """Synchronous wrapper for async crawl."""
-        return asyncio.run(self.enrich_url(url))
 
 if __name__ == "__main__":
-    import sys
-    if len(sys.argv) > 1:
-        processor = EnrichmentProcessor()
-        print(processor.run_sync(sys.argv[1]))
+    if len(sys.argv) < 2:
+        sys.exit("usage: python crawler.py <url>")
+    print(EnrichmentProcessor().enrich_url(sys.argv[1]))

@@ -72,7 +72,6 @@ print("PASS")
 print("Test 2: Skill Injection")
 diff2 = {"keywords_added": ["Rust", "Go"]}
 out2 = apply_diff(master, diff2)
-print("DEBUG OUT2:", out2)
 assert "Python, C++, Rust, Go" in out2
 print("PASS")
 

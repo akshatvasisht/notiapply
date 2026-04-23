@@ -23,9 +23,7 @@ class WellfoundScraper(BaseScraper):
             url = f"https://wellfound.com/role/l/{slug}/united-states"
 
             try:
-                # Rate limiting: respectful delay before request
-                self._respectful_delay()
-                resp = self.fetcher.get(url)
+                resp = self.fetch_with_retry(url)
 
                 next_data_script = resp.css('script#__NEXT_DATA__')
                 if not next_data_script:
@@ -53,6 +51,15 @@ class WellfoundScraper(BaseScraper):
                                         if len(equity_match) >= 2:
                                             equity_min = float(equity_match[0])
                                             equity_max = float(equity_match[1])
+                                        elif len(equity_match) == 1:
+                                            equity_min = float(equity_match[0])
+
+                                    # compensation may be int, string, or dict — coerce safely
+                                    raw_comp = highlight_listing.get("compensation")
+                                    try:
+                                        salary_min = int(raw_comp) if raw_comp and not isinstance(raw_comp, dict) else None
+                                    except (ValueError, TypeError):
+                                        salary_min = None
 
                                     jobs.append({
                                         "source": "wellfound",
@@ -61,7 +68,7 @@ class WellfoundScraper(BaseScraper):
                                         "location": loc_str,
                                         "url": f"https://wellfound.com/jobs/{highlight_listing.get('slug', '')}",
                                         "description_raw": highlight_listing.get("description", ""),
-                                        "salary_min": highlight_listing.get("compensation"),
+                                        "salary_min": salary_min,
                                         "salary_max": None,
                                         "equity_min": equity_min,
                                         "equity_max": equity_max,
@@ -102,12 +109,10 @@ def run(db_url: str, module_config: dict):
 
 
 if __name__ == "__main__":
+    from scraper.db_connect import get_db_url
+
     config_str = sys.argv[1] if len(sys.argv) > 1 else "{}"
     payload = json.loads(config_str)
-    
-    if "db_url" not in payload:
-        sys.stderr.write("Error: db_url not provided in JSON payload\\n")
-        sys.exit(1)
-        
-    result = run(payload["db_url"], payload)
+
+    result = run(get_db_url(payload), payload)
     print(json.dumps(result))

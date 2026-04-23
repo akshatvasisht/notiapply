@@ -12,6 +12,7 @@ import re
 import sys
 import requests
 import psycopg2
+import structlog
 
 
 def dedup_hash(company: str, title: str, location: str) -> str:
@@ -165,36 +166,68 @@ def poll_repo(repo: str, github_token: str | None, conn):
 
 def run(db_url: str, module_config: dict):
     conn = psycopg2.connect(db_url)
-    cur = conn.cursor()
-
-    cur.execute("SELECT config FROM user_config WHERE id = 1")
-    config = cur.fetchone()[0]
-    cur.close()
-
-    repos = config.get("github_repos", ["SimplifyJobs/New-Grad-Positions"])
-    github_token = config.get("github_token")
-
+    run_id = None
     total_added = 0
     errors = []
 
-    for repo in repos:
-        try:
-            added = poll_repo(repo, github_token, conn)
-            total_added += added
-        except Exception as e:
-            errors.append(f"{repo}: {str(e)}")
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT config FROM user_config WHERE id = 1")
+        config = cur.fetchone()[0]
+        cur.close()
 
-    conn.close()
+        repos = config.get("github_repos", ["SimplifyJobs/New-Grad-Positions"])
+        github_token = config.get("github_token")
+
+        cur2 = conn.cursor()
+        cur2.execute(
+            "INSERT INTO scraper_runs (scraper_key, status, version) VALUES (%s, 'running', 'unknown') RETURNING id",
+            ('github-poll',)
+        )
+        run_id = cur2.fetchone()[0]
+        conn.commit()
+        cur2.close()
+
+        for repo in repos:
+            try:
+                added = poll_repo(repo, github_token, conn)
+                total_added += added
+            except Exception as e:
+                errors.append(f"{repo}: {str(e)}")
+
+    except Exception as e:
+        # Unexpected failure (config read, run-insert, etc.) — surface with context
+        errors.append(f"github_poll setup error: {str(e)}")
+        raise RuntimeError(f"github_poll.run failed during setup: {e}") from e
+    finally:
+        # Always record completion so the monitoring page reflects every attempt
+        if run_id is not None:
+            try:
+                cur3 = conn.cursor()
+                cur3.execute(
+                    "UPDATE scraper_runs SET completed_at = NOW(), jobs_found = %s, status = %s WHERE id = %s",
+                    (total_added, 'failed' if errors else 'success', run_id)
+                )
+                conn.commit()
+                cur3.close()
+            except Exception:
+                pass  # Don't mask the original exception
+        conn.close()
+
     return {"jobs_added": total_added, "errors": errors}
 
 
 if __name__ == "__main__":
+    from scraper.log_config import configure_logging
+    configure_logging()
+    log = structlog.get_logger()
+
     config_str = sys.argv[1] if len(sys.argv) > 1 else "{}"
     payload = json.loads(config_str)
-    
+
     if "db_url" not in payload:
-        sys.stderr.write("Error: db_url not provided in JSON payload\\n")
+        log.error("missing_db_url", detail="db_url not provided in JSON payload")
         sys.exit(1)
-        
+
     result = run(payload["db_url"], payload)
     print(json.dumps(result))

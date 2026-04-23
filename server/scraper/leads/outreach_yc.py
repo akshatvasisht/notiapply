@@ -15,7 +15,10 @@ from base_scraper import BaseScraper
 
 class YCOutreachScraper(BaseScraper):
     def __init__(self, db_url: str, api_key: str = None, base_url: str = None, model: str = "gpt-4o-mini"):
-        super().__init__(db_url, api_key=api_key, base_url=base_url, model=model, use_stealth=True)
+        super().__init__(db_url, 'scrape-outreach-yc', api_key=api_key, base_url=base_url, model=model, use_stealth=True)
+
+    def extract_jobs(self, *args, **kwargs):
+        return []
 
     def extract_contacts(self, company_slugs: list) -> list:
         contacts = []
@@ -90,12 +93,10 @@ def run(db_url: str, module_config: dict):
 
 
 if __name__ == "__main__":
+    from scraper.db_connect import get_db_url
+
     config_str = sys.argv[1] if len(sys.argv) > 1 else "{}"
     payload = json.loads(config_str)
-    
-    if "db_url" not in payload:
-        sys.stderr.write("Error: db_url not provided in JSON payload\\n")
-        sys.exit(1)
-        
-    result = run(payload["db_url"], payload)
+
+    result = run(get_db_url(payload), payload)
     print(json.dumps(result))

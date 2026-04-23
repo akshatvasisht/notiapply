@@ -43,11 +43,15 @@ export default function Toast({ message, type, onDismiss }: ToastProps) {
 
     return (
         <div
+            role="status"
+            aria-live="polite"
             style={{
                 position: 'fixed',
                 bottom: 24,
+                left: 24,
                 right: 24,
                 maxWidth: 400,
+                marginLeft: 'auto',
                 background: colors.bg,
                 border: `1px solid ${colors.border}`,
                 borderRadius: 12,
@@ -79,8 +83,13 @@ export default function Toast({ message, type, onDismiss }: ToastProps) {
                     cursor: 'pointer',
                     fontSize: 16,
                     color: colors.text,
-                    padding: '2px 6px',
+                    padding: '8px 12px',
                     lineHeight: 1,
+                    minWidth: 44,
+                    minHeight: 44,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                 }}
                 aria-label="Dismiss"
             >

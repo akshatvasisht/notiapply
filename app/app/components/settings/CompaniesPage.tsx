@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { getScrapedCompanies, addScrapedCompany, removeScrapedCompany } from '@/lib/db';
 import type { ScrapedCompany } from '@/lib/types';
 import { MOCK_COMPANIES } from '@/lib/mock-data';
+import { logger } from '@/lib/logger';
 
 export default function CompaniesPage({ onBack }: { onBack: () => void }) {
     const [companies, setCompanies] = useState<ScrapedCompany[]>([]);
@@ -13,8 +14,8 @@ export default function CompaniesPage({ onBack }: { onBack: () => void }) {
     const [slug, setSlug] = useState('');
 
     useEffect(() => {
-        getScrapedCompanies().then(setCompanies).catch(() => {
-            console.warn('[DEV] Using mock companies');
+        getScrapedCompanies().then(setCompanies).catch((err) => {
+            logger.warn('DB unavailable, using mock companies', 'CompaniesPage', err);
             setCompanies(MOCK_COMPANIES);
         });
     }, []);

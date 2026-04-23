@@ -49,8 +49,7 @@ export default function EnrichContactModal({ contact, onClose, onUpdated }: Prop
             style={{
                 position: 'fixed',
                 inset: 0,
-                background: 'rgba(0, 0, 0, 0.5)',
-                backdropFilter: 'blur(4px)',
+                background: 'var(--color-overlay)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -59,24 +58,10 @@ export default function EnrichContactModal({ contact, onClose, onUpdated }: Prop
             }}
             onClick={onClose}
         >
-            <style>{`
-                @keyframes fadeIn {
-                    from { opacity: 0; }
-                    to { opacity: 1; }
-                }
-                @keyframes slideUp {
-                    from {
-                        opacity: 0;
-                        transform: translateY(20px);
-                    }
-                    to {
-                        opacity: 1;
-                        transform: translateY(0);
-                    }
-                }
-            `}</style>
-
             <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="enrich-modal-title"
                 onClick={(e) => e.stopPropagation()}
                 style={{
                     background: 'var(--color-surface)',
@@ -84,16 +69,16 @@ export default function EnrichContactModal({ contact, onClose, onUpdated }: Prop
                     padding: 24,
                     width: '90%',
                     maxWidth: 500,
-                    boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+                    boxShadow: 'var(--elevation-modal)',
                     animation: 'slideUp 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                 }}
             >
                 {/* Header */}
-                <h2 style={{
+                <h2 id="enrich-modal-title" style={{
                     fontSize: 18,
                     fontWeight: 600,
                     marginBottom: 20,
-                    color: 'var(--color-text-primary)',
+                    color: 'var(--color-on-surface)',
                 }}>
                     Enrich Company Data: {contact.company_name}
                 </h2>
@@ -113,6 +98,7 @@ export default function EnrichContactModal({ contact, onClose, onUpdated }: Prop
                         </label>
                         <select
                             id="contact-industry"
+                            className="enrich-field"
                             value={industry}
                             onChange={(e) => setIndustry(e.target.value)}
                             disabled={saving}
@@ -126,15 +112,7 @@ export default function EnrichContactModal({ contact, onClose, onUpdated }: Prop
                                 color: 'var(--color-text-primary)',
                                 cursor: saving ? 'not-allowed' : 'pointer',
                                 opacity: saving ? 0.5 : 1,
-                                transition: 'all 0.15s ease',
-                            }}
-                            onFocus={(e) => {
-                                e.currentTarget.style.borderColor = 'var(--color-primary)';
-                                e.currentTarget.style.outline = '2px solid rgba(59, 130, 246, 0.1)';
-                            }}
-                            onBlur={(e) => {
-                                e.currentTarget.style.borderColor = 'var(--color-border)';
-                                e.currentTarget.style.outline = 'none';
+                                transition: 'border-color 0.15s ease',
                             }}
                         >
                             <option value="">Select...</option>
@@ -163,6 +141,7 @@ export default function EnrichContactModal({ contact, onClose, onUpdated }: Prop
                         </label>
                         <select
                             id="contact-company-size"
+                            className="enrich-field"
                             value={headcount}
                             onChange={(e) => setHeadcount(e.target.value)}
                             disabled={saving}
@@ -176,15 +155,7 @@ export default function EnrichContactModal({ contact, onClose, onUpdated }: Prop
                                 color: 'var(--color-text-primary)',
                                 cursor: saving ? 'not-allowed' : 'pointer',
                                 opacity: saving ? 0.5 : 1,
-                                transition: 'all 0.15s ease',
-                            }}
-                            onFocus={(e) => {
-                                e.currentTarget.style.borderColor = 'var(--color-primary)';
-                                e.currentTarget.style.outline = '2px solid rgba(59, 130, 246, 0.1)';
-                            }}
-                            onBlur={(e) => {
-                                e.currentTarget.style.borderColor = 'var(--color-border)';
-                                e.currentTarget.style.outline = 'none';
+                                transition: 'border-color 0.15s ease',
                             }}
                         >
                             <option value="">Select...</option>
@@ -210,6 +181,7 @@ export default function EnrichContactModal({ contact, onClose, onUpdated }: Prop
                         </label>
                         <select
                             id="contact-funding-stage"
+                            className="enrich-field"
                             value={funding}
                             onChange={(e) => setFunding(e.target.value)}
                             disabled={saving}
@@ -223,15 +195,7 @@ export default function EnrichContactModal({ contact, onClose, onUpdated }: Prop
                                 color: 'var(--color-text-primary)',
                                 cursor: saving ? 'not-allowed' : 'pointer',
                                 opacity: saving ? 0.5 : 1,
-                                transition: 'all 0.15s ease',
-                            }}
-                            onFocus={(e) => {
-                                e.currentTarget.style.borderColor = 'var(--color-primary)';
-                                e.currentTarget.style.outline = '2px solid rgba(59, 130, 246, 0.1)';
-                            }}
-                            onBlur={(e) => {
-                                e.currentTarget.style.borderColor = 'var(--color-border)';
-                                e.currentTarget.style.outline = 'none';
+                                transition: 'border-color 0.15s ease',
                             }}
                         >
                             <option value="">Select...</option>
@@ -263,6 +227,7 @@ export default function EnrichContactModal({ contact, onClose, onUpdated }: Prop
                             placeholder="Recent news, product launches, hiring sprees..."
                             rows={3}
                             disabled={saving}
+                            className="enrich-field"
                             style={{
                                 width: '100%',
                                 padding: '8px 12px',
@@ -276,15 +241,7 @@ export default function EnrichContactModal({ contact, onClose, onUpdated }: Prop
                                 lineHeight: 1.5,
                                 cursor: saving ? 'not-allowed' : 'text',
                                 opacity: saving ? 0.5 : 1,
-                                transition: 'all 0.15s ease',
-                            }}
-                            onFocus={(e) => {
-                                e.currentTarget.style.borderColor = 'var(--color-primary)';
-                                e.currentTarget.style.outline = '2px solid rgba(59, 130, 246, 0.1)';
-                            }}
-                            onBlur={(e) => {
-                                e.currentTarget.style.borderColor = 'var(--color-border)';
-                                e.currentTarget.style.outline = 'none';
+                                transition: 'border-color 0.15s ease',
                             }}
                         />
                     </div>
@@ -297,6 +254,7 @@ export default function EnrichContactModal({ contact, onClose, onUpdated }: Prop
                     marginTop: 24,
                 }}>
                     <button
+                        className="enrich-cancel-btn"
                         onClick={onClose}
                         disabled={saving}
                         style={{
@@ -312,21 +270,12 @@ export default function EnrichContactModal({ contact, onClose, onUpdated }: Prop
                             opacity: saving ? 0.5 : 1,
                             transition: 'all 0.15s ease',
                         }}
-                        onMouseEnter={(e) => {
-                            if (!saving) {
-                                e.currentTarget.style.background = 'var(--color-surface-container)';
-                                e.currentTarget.style.borderColor = 'var(--color-text-tertiary)';
-                            }
-                        }}
-                        onMouseLeave={(e) => {
-                            e.currentTarget.style.background = 'var(--color-surface)';
-                            e.currentTarget.style.borderColor = 'var(--color-border)';
-                        }}
                     >
                         Cancel
                     </button>
 
                     <button
+                        className="enrich-save-btn"
                         onClick={handleSave}
                         disabled={saving}
                         style={{
@@ -335,34 +284,12 @@ export default function EnrichContactModal({ contact, onClose, onUpdated }: Prop
                             borderRadius: 6,
                             border: 'none',
                             background: 'var(--color-success)',
-                            color: 'white',
+                            color: 'var(--color-on-success)',
                             fontSize: 14,
                             fontWeight: 500,
                             cursor: saving ? 'not-allowed' : 'pointer',
                             opacity: saving ? 0.6 : 1,
-                            transition: 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
-                        }}
-                        onMouseEnter={(e) => {
-                            if (!saving) {
-                                e.currentTarget.style.transform = 'translateY(-1px)';
-                                e.currentTarget.style.boxShadow = '0 4px 12px rgba(34, 197, 94, 0.3)';
-                                e.currentTarget.style.filter = 'brightness(1.05)';
-                            }
-                        }}
-                        onMouseLeave={(e) => {
-                            e.currentTarget.style.transform = 'translateY(0)';
-                            e.currentTarget.style.boxShadow = 'none';
-                            e.currentTarget.style.filter = 'brightness(1)';
-                        }}
-                        onMouseDown={(e) => {
-                            if (!saving) {
-                                e.currentTarget.style.transform = 'translateY(0) scale(0.98)';
-                            }
-                        }}
-                        onMouseUp={(e) => {
-                            if (!saving) {
-                                e.currentTarget.style.transform = 'translateY(-1px) scale(1)';
-                            }
+                            transition: 'transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.15s, filter 0.15s',
                         }}
                     >
                         {saving ? 'Saving...' : 'Save'}

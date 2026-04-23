@@ -71,6 +71,8 @@ export default function MetricChip({
                     setHovered(false);
                     setShowTooltip(false);
                 }}
+                onFocus={() => setShowTooltip(true)}
+                onBlur={() => setShowTooltip(false)}
                 style={{
                     display: 'flex',
                     alignItems: 'center',

@@ -58,7 +58,7 @@ export default function ShortcutsModal({ onClose }: ShortcutsModalProps) {
             style={{
                 position: 'fixed',
                 inset: 0,
-                background: 'rgba(0, 0, 0, 0.5)',
+                background: 'var(--color-overlay)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -70,7 +70,7 @@ export default function ShortcutsModal({ onClose }: ShortcutsModalProps) {
             <div
                 onClick={e => e.stopPropagation()}
                 style={{
-                    width: 600,
+                    width: 'min(600px, 90vw)',
                     maxHeight: '80vh',
                     background: 'var(--color-surface-container)',
                     borderRadius: 16,

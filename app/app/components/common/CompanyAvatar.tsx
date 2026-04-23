@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import Image from 'next/image';
 
 interface CompanyAvatarProps {
@@ -10,7 +10,7 @@ interface CompanyAvatarProps {
 }
 
 /** Company avatar with logo fallback to letter-based initials */
-export default function CompanyAvatar({ name, logoUrl, size = 32 }: CompanyAvatarProps) {
+function CompanyAvatar({ name, logoUrl, size = 32 }: CompanyAvatarProps) {
     const [imageError, setImageError] = useState(false);
 
     // Generate color based on company name hash
@@ -71,3 +71,5 @@ export default function CompanyAvatar({ name, logoUrl, size = 32 }: CompanyAvata
         </div>
     );
 }
+
+export default memo(CompanyAvatar);

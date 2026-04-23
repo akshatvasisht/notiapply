@@ -94,9 +94,16 @@ function generateJob(id: number): Job {
         equity_max: source === 'wellfound' ? randomInt(10, 50) / 100 : null,
         company_role_location_hash: `${company}-${title}-${location}`.toLowerCase().replace(/\s+/g, '-'),
         discovered_at: discoveredAt.toISOString(),
+        updated_at: discoveredAt.toISOString(),
         docs_fail_reason: null,
         state: biasedState,
         company_logo_url: null,
+        got_callback: null,
+        callback_notes: null,
+        relevance_score: null,
+        score_breakdown: null,
+        is_live: true,
+        liveness_checked_at: null,
     };
 }
 

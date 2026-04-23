@@ -5,8 +5,11 @@ import {
     buildProviderHeaders,
     buildProviderRequest,
     extractMessage,
+    classifyContactRole,
+    buildPrompt,
 } from './llm';
-import type { Contact, UserConfig, LLMProvider } from './types';
+import type { UserConfig, LLMProvider } from './types';
+import { makeContact } from './test-fixtures';
 
 // Mock dependencies
 vi.mock('./db', () => ({
@@ -32,8 +35,7 @@ describe('LLM Integration', () => {
         crm_message_tone: 'professional',
     };
 
-    const mockContact: Contact = {
-        id: 1,
+    const mockContact = makeContact({
         name: 'Jane Doe',
         company_name: 'TechCorp',
         role: 'Engineering Manager',
@@ -42,8 +44,7 @@ describe('LLM Integration', () => {
         linkedin_url: 'https://linkedin.com/in/janedoe',
         company_industry: 'Software',
         linkedin_posts_summary: 'Recently posted about AI and ML trends',
-        created_at: new Date().toISOString(),
-    };
+    });
 
     beforeEach(() => {
         vi.clearAllMocks();
@@ -350,5 +351,89 @@ describe('LLM Integration', () => {
             expect(results.get(2)).toBe('Success');
             expect(results.has(1)).toBe(false);
         });
+    });
+});
+
+describe('outreach strategy classification', () => {
+    it('classifies recruiter roles', () => {
+        expect(classifyContactRole('Recruiter')).toBe('recruiter');
+        expect(classifyContactRole('Senior Talent Acquisition')).toBe('recruiter');
+        expect(classifyContactRole('Technical Sourcer')).toBe('recruiter');
+    });
+
+    it('classifies hiring manager roles', () => {
+        expect(classifyContactRole('VP of Engineering')).toBe('hiring_manager');
+        expect(classifyContactRole('Director of Product')).toBe('hiring_manager');
+        expect(classifyContactRole('CTO')).toBe('hiring_manager');
+        expect(classifyContactRole('Hiring Manager')).toBe('hiring_manager');
+    });
+
+    it('classifies peer roles', () => {
+        expect(classifyContactRole('Software Engineer')).toBe('peer');
+        expect(classifyContactRole('Frontend Developer')).toBe('peer');
+        expect(classifyContactRole('Product Designer')).toBe('peer');
+        expect(classifyContactRole('Data Scientist')).toBe('peer');
+    });
+
+    it('defaults unknown/null roles to generic', () => {
+        expect(classifyContactRole(null)).toBe('generic');
+        expect(classifyContactRole('Office Manager')).toBe('generic');
+        expect(classifyContactRole('')).toBe('generic');
+    });
+
+    it('is case-insensitive', () => {
+        expect(classifyContactRole('RECRUITER')).toBe('recruiter');
+        expect(classifyContactRole('software engineer')).toBe('peer');
+        expect(classifyContactRole('CTO')).toBe('hiring_manager');
+    });
+});
+
+describe('strategy template selection', () => {
+    const baseContact = makeContact({
+        name: 'Alex Smith',
+        company_name: 'Acme Corp',
+        role: null,
+        email: null,
+        state: 'identified',
+        linkedin_url: null,
+        company_industry: null,
+        linkedin_posts_summary: null,
+    });
+
+    it('recruiter prompt contains resume CTA', () => {
+        const contact = { ...baseContact, role: 'Recruiter' };
+        const prompt = buildPrompt(contact, 'Software Engineer', 'Acme Corp', 'professional');
+        expect(prompt).toContain('Happy to share my resume');
+    });
+
+    it('peer prompt does not contain job pitch language', () => {
+        const contact = { ...baseContact, role: 'Software Engineer' };
+        const prompt = buildPrompt(contact, undefined, 'Acme Corp', 'professional');
+        // Peer strategy must not use the recruiter resume CTA phrase
+        expect(prompt).not.toContain('Happy to share my resume');
+        // Peer template should not include the recruiter/HM format headers
+        expect(prompt).not.toContain('recruiter strategy');
+        expect(prompt).not.toContain('hiring manager strategy');
+        // Peer template must include the NO JOB PITCH marker
+        expect(prompt).toContain('NO JOB PITCH');
+    });
+
+    it('peer prompt contains "exchange notes" CTA', () => {
+        const contact = { ...baseContact, role: 'Frontend Developer' };
+        const prompt = buildPrompt(contact, undefined, 'Acme Corp', 'professional');
+        expect(prompt).toContain('exchange notes');
+    });
+
+    it('hiring manager prompt ends with a question, not a resume ask', () => {
+        const contact = { ...baseContact, role: 'VP of Engineering' };
+        const prompt = buildPrompt(contact, 'Staff Engineer', 'Acme Corp', 'professional');
+        expect(prompt).toContain('?');
+        expect(prompt).not.toContain('Happy to share my resume');
+    });
+
+    it('generic prompt contains a CTA to connect and discuss', () => {
+        const contact = { ...baseContact, role: 'Office Manager' };
+        const prompt = buildPrompt(contact, 'Operations Lead', 'Acme Corp', 'professional');
+        expect(prompt).toContain('Would love to connect and discuss');
     });
 });

@@ -5,7 +5,7 @@
  * based on job description keywords. No hardcoded summaries.
  */
 
-import { getUserConfig } from './db';
+import { getPool } from './db';
 import type { Job } from './types';
 
 /**
@@ -21,17 +21,9 @@ import type { Job } from './types';
  */
 export async function extractResumeContext(job?: Job): Promise<string | undefined> {
     try {
-        const config = await getUserConfig();
-
-        if (!config.master_resume_id) {
-            return undefined; // No resume configured
-        }
-
-        // Fetch master resume LaTeX source
-        const { db } = await import('./db');
-        const result = await db.query(
-            'SELECT latex_source FROM master_resume WHERE id = $1',
-            [config.master_resume_id]
+        // Fetch the active master resume directly
+        const result = await getPool().query(
+            'SELECT latex_source FROM master_resume WHERE is_active = true LIMIT 1'
         );
 
         if (!result.rows.length) {
@@ -63,7 +55,7 @@ function extractGeneralHighlights(resumeLatex: string): string {
     const safeLatex = resumeLatex.substring(0, 10000);
 
     // Try to find summary/objective section
-    const summaryMatch = safeLatex.match(/\\section\{(?:Summary|Objective|Profile)\}(.*?)\\section/is);
+    const summaryMatch = safeLatex.match(/\\section\{(?:Summary|Objective|Profile)\}([\s\S]*?)\\section/i);
     if (summaryMatch) {
         const summary = cleanLatexText(summaryMatch[1]);
         // Return first 2-3 key points
@@ -74,7 +66,7 @@ function extractGeneralHighlights(resumeLatex: string): string {
     }
 
     // Fallback: Extract from most recent experience
-    const experienceMatch = safeLatex.match(/\\section\{(?:Experience|Work Experience)\}(.*?)\\section/is);
+    const experienceMatch = safeLatex.match(/\\section\{(?:Experience|Work Experience)\}([\s\S]*?)\\section/i);
     if (experienceMatch) {
         const experience = cleanLatexText(experienceMatch[1]);
         // Extract company and key achievement

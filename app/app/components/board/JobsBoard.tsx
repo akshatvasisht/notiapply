@@ -1,13 +1,13 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
-import { getJobs, getUserConfig, getATSFailures, getAutomationStats, getLastScrapeTime, getSourceCoverage, getCallbackAnalytics } from '@/lib/db';
 import { startFillSession, triggerPipelineRun } from '@/lib/tauri';
 import { logger } from '@/lib/logger';
-import type { Job, BoardColumn, SidecarEvent, UserConfig, ATSFailure, AutomationStats, SourceCoverage, CallbackStats } from '@/lib/types';
+import { useJobs, useDashboardMetrics, useUserConfig, useCardSelection, useBoardKeyboard } from '@/lib/hooks';
+import { MOCK_JOBS } from '@/lib/mock-data';
+import type { Job, BoardColumn, SidecarEvent } from '@/lib/types';
 import { COLUMN_STATES, COLUMN_LABELS, SOURCE_LABELS } from '@/lib/types';
-import { MOCK_JOBS, MOCK_CONFIG } from '@/lib/mock-data';
 import JobMetricsCompact from './metrics/JobMetricsCompact';
 import JobActions from './actions/JobActions';
 import Column from './Column';
@@ -33,6 +33,8 @@ const ShortcutsModal = dynamic(() => import('../help/ShortcutsModal'), {
 });
 
 
+const BOARD_COLUMNS = ['incoming', 'ready', 'attention', 'submitted', 'archive'] as const;
+
 type View = 'board' | 'settings' | 'companies';
 
 export interface BoardProps {
@@ -49,136 +51,60 @@ export default function Board({
     onActionsChange
 }: BoardProps) {
     const [view, setView] = useState<View>('board');
-    const [jobs, setJobs] = useState<Job[]>([]);
     const [focusedJob, setFocusedJob] = useState<Job | null>(null);
     const [sessionRunning, setSessionRunning] = useState(false);
     const [sessionResult, setSessionResult] = useState<SidecarEvent | null>(null);
-    const [config, setConfig] = useState<UserConfig>({});
     const [scraping, setScraping] = useState(false);
-    const [useMockData, setUseMockData] = useState(false);
+    const [extractingContacts, setExtractingContacts] = useState(false);
     const [showShortcuts, setShowShortcuts] = useState(false);
     const [_internalSearch, _setInternalSearch] = useState('');
     const searchQuery = externalSearch ?? _internalSearch;
     const setSearchQuery = onExternalSearchChange ?? _setInternalSearch;
-    const [selectedJobIds, setSelectedJobIds] = useState<Set<number>>(new Set());
+    const { selectedIds: selectedJobIds, handleCardClick: handleCardClickRaw, selectAll: selectAllJobIds, clearSelection: clearJobSelection, setSelectedIds: setSelectedJobIds } = useCardSelection<Job>();
     const [toastMessage, setToastMessage] = useState<string | null>(null);
     const [toastType] = useState<ToastType>('info');
 
-    // Metrics state
-    const [atsFailures, setAtsFailures] = useState<ATSFailure[]>([]);
-    const [automationStats, setAutomationStats] = useState<AutomationStats>({ rate: 0, automated: 0, total: 0 });
-    const [lastScrapeTime, setLastScrapeTime] = useState<Date | null>(null);
-    const [sourceCoverage, setSourceCoverage] = useState<SourceCoverage>({ active: 0, total: 4 });
-    const [callbackStats, setCallbackStats] = useState<CallbackStats>({ total_applications: 0, total_callbacks: 0, callback_rate: 0 });
+    // Data hooks (cached, batched)
+    const { data: jobs, refresh: refreshJobs } = useJobs();
+    const { data: metrics, refresh: refreshMetrics } = useDashboardMetrics();
+    const { data: config } = useUserConfig();
+
+    const useMockData = jobs === MOCK_JOBS;
 
     const refresh = useCallback(() => {
-        getJobs()
-            .then(data => {
-                if (data.length === 0) {
-                    setJobs(MOCK_JOBS);
-                    setUseMockData(true);
-                } else {
-                    setJobs(data);
-                    setUseMockData(false);
-                }
-            })
-            .catch(() => {
-                logger.warn('Database not available, using mock data', 'Board');
-                setJobs(MOCK_JOBS);
-                setUseMockData(true);
-            });
+        refreshJobs();
+        refreshMetrics();
+    }, [refreshJobs, refreshMetrics]);
 
-        // Fetch metrics
-        getATSFailures().then(setAtsFailures).catch(() => setAtsFailures([]));
-        getAutomationStats().then(setAutomationStats).catch(() => setAutomationStats({ rate: 0, automated: 0, total: 0 }));
-        getLastScrapeTime().then(setLastScrapeTime).catch(() => setLastScrapeTime(null));
-        getSourceCoverage().then(setSourceCoverage).catch(() => setSourceCoverage({ active: 0, total: 4 }));
-        getCallbackAnalytics().then(setCallbackStats).catch(() => setCallbackStats({ total_applications: 0, total_callbacks: 0, callback_rate: 0 }));
-    }, []);
-
-    useEffect(() => {
-        refresh();
-        getUserConfig()
-            .then(setConfig)
-            .catch(() => {
-                logger.warn('Database not available, using mock config', 'Board');
-                setConfig(MOCK_CONFIG);
-            });
-    }, [refresh]);
-
-    // Filter jobs by search query
-    const filteredJobs = jobs.filter(job => {
+    // Filter jobs by search query — memoized so it only recomputes when jobs or query changes
+    const filteredJobs = useMemo(() => (jobs ?? []).filter(job => {
         if (!searchQuery) return true;
         const query = searchQuery.toLowerCase();
         const sourceLabel = SOURCE_LABELS[job.source]?.toLowerCase() || job.source.toLowerCase();
-
         return (
             job.title.toLowerCase().includes(query) ||
             job.company.toLowerCase().includes(query) ||
-            job.location.toLowerCase().includes(query) ||
+            (job.location ?? '').toLowerCase().includes(query) ||
             sourceLabel.includes(query) ||
             job.source.toLowerCase().includes(query)
         );
-    });
+    }), [jobs, searchQuery]);
 
-    const jobsByColumn = (column: BoardColumn) =>
-        filteredJobs.filter(j => COLUMN_STATES[column].includes(j.state));
-
-    const queuedCount = jobsByColumn('ready').length;
-
-    // Push metrics and actions to header
-    useEffect(() => {
-        if (onMetricsChange) {
-            onMetricsChange(
-                <JobMetricsCompact
-                    atsFailures={atsFailures}
-                    automationStats={automationStats}
-                    lastScrapeTime={lastScrapeTime}
-                    sourceCoverage={sourceCoverage}
-                    callbackStats={callbackStats}
-                />
-            );
+    // Group by column — memoized to avoid recomputing on every render
+    const jobsByColumnMap = useMemo(() => {
+        const map = new Map<BoardColumn, Job[]>();
+        for (const col of BOARD_COLUMNS) {
+            map.set(col, filteredJobs.filter(j => COLUMN_STATES[col].includes(j.state)));
         }
-        if (onActionsChange) {
-            onActionsChange(
-                <JobActions
-                    queuedCount={queuedCount}
-                    sessionRunning={sessionRunning}
-                    sessionResult={sessionResult}
-                    scraping={scraping}
-                    onStartSession={handleStartSession}
-                    onScrapeNow={handleScrapeNow}
-                    onOpenCompanies={() => setView('companies')}
-                />
-            );
-        }
-    }, [atsFailures, automationStats, lastScrapeTime, sourceCoverage, callbackStats, queuedCount, sessionRunning, sessionResult, scraping, onMetricsChange, onActionsChange]);
+        return map;
+    }, [filteredJobs]);
 
-    useEffect(() => {
-        const handler = (e: KeyboardEvent) => {
-            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
-                return;
-            }
+    const jobsByColumn = (column: BoardColumn) => jobsByColumnMap.get(column) ?? [];
 
-            if (e.key === 'Escape') {
-                if (showShortcuts) setShowShortcuts(false);
-                else if (selectedJobIds.size > 0) setSelectedJobIds(new Set());
-                else if (focusedJob) setFocusedJob(null);
-                else if (view !== 'board') setView('board');
-            } else if (e.key === '?' && !e.shiftKey) {
-                e.preventDefault();
-                setShowShortcuts(true);
-            } else if (e.key === 'a' && e.ctrlKey) {
-                e.preventDefault();
-                const allIds = new Set(filteredJobs.map(j => j.id));
-                setSelectedJobIds(allIds);
-            }
-        };
-        window.addEventListener('keydown', handler);
-        return () => window.removeEventListener('keydown', handler);
-    }, [focusedJob, view, showShortcuts, selectedJobIds, filteredJobs]);
+    const queuedCount = jobsByColumnMap.get('ready')?.length ?? 0;
 
-    const handleStartSession = async () => {
+    // Handlers must be declared before the useMemo nodes that reference them in dependency arrays
+    const handleStartSession = useCallback(async () => {
         if (sessionRunning) return;
         setSessionRunning(true);
         setSessionResult(null);
@@ -208,32 +134,86 @@ export default function Board({
             logger.error('Failed to start session', 'Board', err);
             setSessionRunning(false);
         }
-    };
+    }, [sessionRunning, refresh]);
 
-    const handleScrapeNow = async () => {
-        if (scraping || !config.n8n_webhook_url) return;
+    const handleScrapeNow = useCallback(async () => {
+        if (scraping || !config?.n8n_webhook_url) return;
         setScraping(true);
         const ok = await triggerPipelineRun(config.n8n_webhook_url, config.n8n_webhook_secret ?? '');
         if (!ok) logger.warn('n8n not reachable', 'Board');
         setTimeout(() => setScraping(false), 3000);
-    };
+    }, [scraping, config]);
 
-    const handleCardClick = (job: Job, e: React.MouseEvent) => {
-        if (e.ctrlKey) {
-            const newSelection = new Set(selectedJobIds);
-            if (newSelection.has(job.id)) {
-                newSelection.delete(job.id);
-            } else {
-                newSelection.add(job.id);
+    const handleExtractContacts = useCallback(async () => {
+        if (extractingContacts || !config?.n8n_webhook_url) return;
+        setExtractingContacts(true);
+        const ok = await triggerPipelineRun(
+            config.n8n_webhook_url,
+            config.n8n_webhook_secret ?? '',
+            { workflow: '12-extract-job-contacts' }
+        );
+        if (!ok) logger.warn('n8n not reachable for contact extraction', 'Board');
+        setTimeout(() => setExtractingContacts(false), 3000);
+    }, [extractingContacts, config]);
+
+    const handleOpenCompanies = useCallback(() => setView('companies'), []);
+
+    // Memoize header slot content — only reconstructs when the relevant data actually changes
+    const metricsNode = useMemo(() => (
+        <JobMetricsCompact
+            atsFailures={metrics?.atsFailures ?? []}
+            automationStats={metrics?.automationStats ?? { rate: 0, automated: 0, total: 0 }}
+            lastScrapeTime={metrics?.lastScrapeTime ?? null}
+            sourceCoverage={metrics?.sourceCoverage ?? { active: 0, total: 4 }}
+            callbackStats={metrics?.callbackStats ?? { total_applications: 0, total_callbacks: 0, callback_rate: 0 }}
+        />
+    ), [metrics]);
+
+    const actionsNode = useMemo(() => (
+        <JobActions
+            queuedCount={queuedCount}
+            sessionRunning={sessionRunning}
+            sessionResult={sessionResult}
+            scraping={scraping}
+            extractingContacts={extractingContacts}
+            onStartSession={handleStartSession}
+            onScrapeNow={handleScrapeNow}
+            onExtractContacts={handleExtractContacts}
+            onOpenCompanies={handleOpenCompanies}
+        />
+    ), [queuedCount, sessionRunning, sessionResult, scraping, extractingContacts, handleStartSession, handleScrapeNow, handleExtractContacts, handleOpenCompanies]);
+
+    useEffect(() => { onMetricsChange?.(metricsNode); }, [metricsNode, onMetricsChange]);
+    useEffect(() => { onActionsChange?.(actionsNode); }, [actionsNode, onActionsChange]);
+
+    // Keyboard: Escape cascade + Ctrl+A select-all
+    useBoardKeyboard(
+        useMemo(() => [
+            { active: showShortcuts, dismiss: () => setShowShortcuts(false) },
+            { active: selectedJobIds.size > 0, dismiss: clearJobSelection },
+            { active: !!focusedJob, dismiss: () => setFocusedJob(null) },
+            { active: view !== 'board', dismiss: () => setView('board') },
+        ], [showShortcuts, selectedJobIds, focusedJob, view, clearJobSelection]),
+        useCallback(() => filteredJobs.map(j => j.id), [filteredJobs]),
+        selectAllJobIds,
+    );
+
+    // Extra keyboard shortcut: '?' opens shortcuts modal
+    useEffect(() => {
+        const handler = (e: KeyboardEvent) => {
+            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+            if (e.key === '?' && !e.shiftKey) {
+                e.preventDefault();
+                setShowShortcuts(true);
             }
-            setSelectedJobIds(newSelection);
-        } else if (selectedJobIds.size > 0) {
-            setSelectedJobIds(new Set());
-            setFocusedJob(job);
-        } else {
-            setFocusedJob(job);
-        }
-    };
+        };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, []);
+
+    const handleCardClick = useCallback((job: Job, e: React.MouseEvent) => {
+        handleCardClickRaw(job, e, setFocusedJob);
+    }, [handleCardClickRaw]);
 
     if (view === 'settings') return <SettingsPage onBack={() => { setView('board'); refresh(); }} />;
     if (view === 'companies') return <CompaniesPage onBack={() => setView('board')} />;
@@ -268,7 +248,7 @@ export default function Board({
         />
     ) : null;
 
-    const browserAgentWarning = (config.browser_agent_enabled && !config.user_email) ? (
+    const browserAgentWarning = (config?.browser_agent_enabled && !config?.user_email) ? (
         <div style={{
             padding: '8px 16px',
             background: 'var(--color-error-container)',
@@ -297,16 +277,8 @@ export default function Board({
                     border: '1px solid var(--color-error)',
                     borderRadius: 4,
                     cursor: 'pointer',
-                    transition: 'all 0.15s ease',
                 }}
-                onMouseEnter={e => {
-                    e.currentTarget.style.background = 'var(--color-error)';
-                    e.currentTarget.style.color = 'white';
-                }}
-                onMouseLeave={e => {
-                    e.currentTarget.style.background = 'transparent';
-                    e.currentTarget.style.color = 'var(--color-error)';
-                }}
+                className="jobs-agent-btn"
             >
                 Configure in Settings
             </button>
@@ -327,7 +299,7 @@ export default function Board({
                     display: 'flex', flex: 1, gap: 8, padding: '8px 12px',
                     background: 'var(--color-surface-raised)', overflowX: 'auto',
                 }}>
-                    {(['incoming', 'ready', 'attention', 'submitted', 'archive'] as BoardColumn[]).map(col => (
+                    {BOARD_COLUMNS.map(col => (
                         <Column
                             key={col}
                             label={COLUMN_LABELS[col]}
@@ -342,7 +314,7 @@ export default function Board({
                 {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
 
                 {focusedJob && (
-                    <Modal onClose={() => { setFocusedJob(null); refresh(); }}>
+                    <Modal title={`${focusedJob.title} at ${focusedJob.company}`} onClose={() => { setFocusedJob(null); refresh(); }}>
                         <FocusMode job={focusedJob} onBack={() => { setFocusedJob(null); refresh(); }} />
                     </Modal>
                 )}

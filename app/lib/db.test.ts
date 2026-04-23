@@ -9,7 +9,9 @@ import {
     getCallbackAnalytics,
 } from './db';
 
-describe('Database Operations', () => {
+const hasDb = !!(process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL);
+
+describe.skipIf(!hasDb)('Database Operations (integration — requires PostgreSQL)', () => {
     let testPool: Pool;
     let testJobId: number;
     let testContactId: number;

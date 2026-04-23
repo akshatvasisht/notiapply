@@ -1,25 +1,30 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { testSmtpConnection, checkDomainHealth, type DomainHealth } from '@/lib/email';
 import {
     DndContext, closestCenter, PointerSensor, useSensor, useSensors,
     type DragEndEvent,
 } from '@dnd-kit/core';
 import {
-    SortableContext, verticalListSortingStrategy, useSortable,
+    SortableContext, verticalListSortingStrategy,
     arrayMove,
 } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 import {
-    getUserConfig, updateUserConfig, getPipelineModules, toggleModule,
+    getPipelineModules, toggleModule,
     updateModuleOrder, addCustomModule, deleteModule, updateModuleConfig,
 } from '@/lib/db';
-import type { UserConfig, PipelineModule } from '@/lib/types';
+import { getSecureConfig, updateSecureConfig } from '@/lib/secure-config';
+import type { UserConfig, PipelineModule, LLMProvider } from '@/lib/types';
+import { logger } from '@/lib/logger';
 import { MOCK_CONFIG, MOCK_MODULES } from '@/lib/mock-data';
-import JsonSchemaForm from './JsonSchemaForm';
 import SourceLegend from './SourceLegend';
 import StatusLegend from './StatusLegend';
 import ContactStatusLegend from './ContactStatusLegend';
+import { Section } from './SettingsSection';
+import { Field, FieldWithTest } from './SettingsField';
+import { TagFieldInline } from './TagFieldInline';
+import { SortableModuleRow, AddModuleModal } from './PipelineModules';
 
 export default function SettingsPage({ onBack }: { onBack: () => void }) {
     const [config, setConfig] = useState<UserConfig>({});
@@ -27,7 +32,12 @@ export default function SettingsPage({ onBack }: { onBack: () => void }) {
     const [showAddModule, setShowAddModule] = useState(false);
     const [expandedModule, setExpandedModule] = useState<number | null>(null);
     const [dirty, setDirty] = useState(false);
+    const [saving, setSaving] = useState(false);
     const [lastSaved, setLastSaved] = useState<number | null>(null);
+    const [domainHealth, setDomainHealth] = useState<DomainHealth | null>(null);
+    const [smtpTestResult, setSmtpTestResult] = useState<{ success: boolean; error?: string } | null>(null);
+    const [testingSmtp, setTestingSmtp] = useState(false);
+    const [checkingDomain, setCheckingDomain] = useState(false);
     const [now, setNow] = useState<number | null>(null);
 
     useEffect(() => {
@@ -42,20 +52,26 @@ export default function SettingsPage({ onBack }: { onBack: () => void }) {
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
     useEffect(() => {
-        getUserConfig().then(setConfig).catch(() => {
-            console.warn('[DEV] Using mock config');
+        getSecureConfig().then(setConfig).catch((err) => {
+            logger.warn('DB unavailable, using mock config', 'SettingsPage', err);
             setConfig(MOCK_CONFIG);
         });
-        getPipelineModules().then(setModules).catch(() => {
-            console.warn('[DEV] Using mock modules');
+        getPipelineModules().then(setModules).catch((err) => {
+            logger.warn('DB unavailable, using mock modules', 'SettingsPage', err);
             setModules(MOCK_MODULES);
         });
     }, []);
 
     const save = async () => {
-        await updateUserConfig(config);
-        setDirty(false);
-        setLastSaved(Date.now());
+        if (saving) return;
+        setSaving(true);
+        try {
+            await updateSecureConfig(config);
+            setDirty(false);
+            setLastSaved(Date.now());
+        } finally {
+            setSaving(false);
+        }
     };
 
     const patch = (p: Partial<UserConfig>) => { setConfig(prev => ({ ...prev, ...p })); setDirty(true); };
@@ -87,7 +103,7 @@ export default function SettingsPage({ onBack }: { onBack: () => void }) {
     };
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
             <div style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 height: 44, padding: '0 16px',
@@ -102,15 +118,15 @@ export default function SettingsPage({ onBack }: { onBack: () => void }) {
                         </span>
                     )}
                 </div>
-                <button onClick={save} disabled={!dirty} style={{
+                <button onClick={save} disabled={!dirty || saving} style={{
                     padding: '5px 14px', borderRadius: 6, fontSize: 12, fontWeight: 500, border: 'none',
-                    background: dirty ? 'var(--color-primary)' : 'var(--color-border)',
-                    color: dirty ? 'var(--color-text-inverse)' : 'var(--color-text-disabled)',
-                    cursor: dirty ? 'pointer' : 'not-allowed',
-                }}>Save</button>
+                    background: dirty && !saving ? 'var(--color-primary)' : 'var(--color-border)',
+                    color: dirty && !saving ? 'var(--color-text-inverse)' : 'var(--color-text-disabled)',
+                    cursor: dirty && !saving ? 'pointer' : 'not-allowed',
+                }}>{saving ? 'Saving…' : 'Save'}</button>
             </div>
 
-            <div style={{ flex: 1, overflowY: 'auto', padding: 24, maxWidth: 640, margin: '0 auto', width: '100%' }}>
+            <div style={{ flex: 1, overflowY: 'auto', padding: 24, maxWidth: 640, margin: '0 auto', width: '100%', minHeight: 0 }}>
 
                 {/* Pipeline Modules */}
                 <Section title="Pipeline">
@@ -147,7 +163,7 @@ export default function SettingsPage({ onBack }: { onBack: () => void }) {
                         <select
                             id="llm-provider-select"
                             value={config.llm_provider ?? 'openai'}
-                            onChange={e => patch({ llm_provider: e.target.value as any })}
+                            onChange={e => patch({ llm_provider: e.target.value as LLMProvider })}
                             style={{
                                 width: '100%',
                                 padding: '8px 12px',
@@ -336,6 +352,13 @@ export default function SettingsPage({ onBack }: { onBack: () => void }) {
                     <TagFieldInline label="Locations" tags={config.locations ?? []} onChange={t => patch({ locations: t })} />
                     <TagFieldInline label="GitHub Repos" tags={config.github_repos ?? []} onChange={t => patch({ github_repos: t })} />
                     <TagFieldInline label="Exclude Keywords" tags={config.filter?.exclude_keywords ?? []} onChange={t => patch({ filter: { ...config.filter, exclude_keywords: t } })} />
+                    <Field
+                        label="Relevance Score Threshold"
+                        value={(config.relevance_threshold ?? 60).toString()}
+                        onChange={v => patch({ relevance_threshold: parseInt(v) || 60 })}
+                        type="number"
+                        placeholder="60"
+                    />
                 </Section>
 
                 {/* Notifications */}
@@ -351,6 +374,98 @@ export default function SettingsPage({ onBack }: { onBack: () => void }) {
 
                 {/* CRM & Outreach */}
                 <Section title="CRM & Outreach">
+                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-on-surface-variant)', letterSpacing: '0.8px', textTransform: 'uppercase', paddingBottom: 4, paddingTop: 4 }}>
+                        SMTP Sending
+                    </div>
+                    <Field label="SMTP Host" value={config.smtp_host ?? ''} onChange={v => patch({ smtp_host: v })} placeholder="smtp.gmail.com" />
+                    <Field label="SMTP Port" value={config.smtp_port?.toString() ?? ''} onChange={v => patch({ smtp_port: parseInt(v) || undefined })} type="number" placeholder="587" />
+                    <Field label="SMTP Username" value={config.smtp_user ?? ''} onChange={v => patch({ smtp_user: v })} placeholder="you@gmail.com" />
+                    <Field label="SMTP Password" value={config.smtp_password ?? ''} onChange={v => patch({ smtp_password: v })} type="password" placeholder="App password or SMTP password" />
+                    <Field label="From Name" value={config.smtp_from_name ?? ''} onChange={v => patch({ smtp_from_name: v })} placeholder="Your Name" />
+                    <Field label="From Email" value={config.smtp_from_email ?? ''} onChange={v => patch({ smtp_from_email: v })} placeholder="you@gmail.com" />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingLeft: 2, paddingBottom: 4 }}>
+                        <input
+                            type="checkbox"
+                            id="smtp_secure"
+                            checked={config.smtp_secure ?? false}
+                            onChange={e => patch({ smtp_secure: e.target.checked })}
+                            style={{ cursor: 'pointer' }}
+                        />
+                        <label htmlFor="smtp_secure" style={{ fontSize: 13, color: 'var(--color-on-surface)', cursor: 'pointer' }}>
+                            Use TLS (port 465) — uncheck for STARTTLS (port 587)
+                        </label>
+                    </div>
+                    <Field label="Daily Send Limit" value={config.smtp_daily_limit?.toString() ?? '30'} onChange={v => patch({ smtp_daily_limit: parseInt(v) || 30 })} type="number" placeholder="30" />
+                    <Field label="Min Delay Between Sends (minutes)" value={config.smtp_min_delay_minutes?.toString() ?? '10'} onChange={v => patch({ smtp_min_delay_minutes: parseFloat(v) || 10 })} type="number" placeholder="10" />
+                    <Field label="Physical Address (CAN-SPAM)" value={config.physical_address ?? ''} onChange={v => patch({ physical_address: v })} placeholder="123 Main St, City, ST 12345" />
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <button
+                            onClick={async () => {
+                                setTestingSmtp(true);
+                                setSmtpTestResult(null);
+                                try {
+                                    const result = await testSmtpConnection(config);
+                                    setSmtpTestResult(result);
+                                } finally {
+                                    setTestingSmtp(false);
+                                }
+                            }}
+                            disabled={testingSmtp || !config.smtp_host}
+                            style={{
+                                padding: '6px 14px', borderRadius: 8, fontSize: 12, cursor: config.smtp_host ? 'pointer' : 'not-allowed',
+                                background: 'transparent', border: '1px solid var(--color-outline)',
+                                color: 'var(--color-on-surface)', opacity: config.smtp_host ? 1 : 0.5,
+                            }}
+                        >
+                            {testingSmtp ? 'Testing…' : 'Test Connection'}
+                        </button>
+                        {smtpTestResult && (
+                            <span style={{ fontSize: 12, color: smtpTestResult.success ? 'var(--color-success)' : 'var(--color-error)' }}>
+                                {smtpTestResult.success ? 'Connected' : `Error: ${smtpTestResult.error}`}
+                            </span>
+                        )}
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <button
+                            onClick={async () => {
+                                const domain = config.smtp_from_email?.split('@')[1] || config.smtp_user?.split('@')[1];
+                                if (!domain) return;
+                                setCheckingDomain(true);
+                                setDomainHealth(null);
+                                try {
+                                    const health = await checkDomainHealth(domain);
+                                    setDomainHealth(health);
+                                } finally {
+                                    setCheckingDomain(false);
+                                }
+                            }}
+                            disabled={checkingDomain || (!config.smtp_from_email && !config.smtp_user)}
+                            style={{
+                                padding: '6px 14px', borderRadius: 8, fontSize: 12,
+                                cursor: (config.smtp_from_email || config.smtp_user) ? 'pointer' : 'not-allowed',
+                                background: 'transparent', border: '1px solid var(--color-outline)',
+                                color: 'var(--color-on-surface)', opacity: (config.smtp_from_email || config.smtp_user) ? 1 : 0.5,
+                            }}
+                        >
+                            {checkingDomain ? 'Checking…' : 'Check Domain Health'}
+                        </button>
+                        {domainHealth && (
+                            <span style={{ fontSize: 12, display: 'flex', gap: 6 }}>
+                                <span style={{ color: domainHealth.spf ? 'var(--color-success)' : 'var(--color-error)' }}>
+                                    SPF: {domainHealth.spf ? 'pass' : 'fail'}
+                                </span>
+                                <span style={{ color: domainHealth.dkim ? 'var(--color-success)' : 'var(--color-error)' }}>
+                                    DKIM: {domainHealth.dkim ? 'pass' : 'fail'}
+                                </span>
+                                <span style={{ color: domainHealth.dmarc ? 'var(--color-success)' : 'var(--color-error)' }}>
+                                    DMARC: {domainHealth.dmarc ? 'pass' : 'fail'}
+                                </span>
+                            </span>
+                        )}
+                    </div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-on-surface-variant)', letterSpacing: '0.8px', textTransform: 'uppercase', paddingBottom: 4, paddingTop: 8 }}>
+                        Outreach Settings
+                    </div>
                     <Field
                         label="Default Message Tone"
                         value={config.crm_message_tone ?? 'professional'}
@@ -402,288 +517,3 @@ export default function SettingsPage({ onBack }: { onBack: () => void }) {
     );
 }
 
-// ─── Sortable Module Row ────────────────────────────────────────────────────────
-
-function SortableModuleRow({ module: mod, expanded, onToggle, onExpand, onConfigSave, onDelete }: {
-    module: PipelineModule;
-    expanded: boolean;
-    onToggle: (v: boolean) => void;
-    onExpand: () => void;
-    onConfigSave: (cfg: Record<string, unknown>) => void;
-    onDelete: () => void;
-}) {
-    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: mod.id });
-    const [localConfig, setLocalConfig] = useState<Record<string, unknown>>(mod.module_config ?? {});
-
-    const style: React.CSSProperties = {
-        transform: CSS.Transform.toString(transform),
-        transition,
-        opacity: isDragging ? 0.5 : mod.enabled ? 1 : 0.6,
-    };
-
-    return (
-        <div ref={setNodeRef} style={style}>
-            <div style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: '8px 12px', borderRadius: expanded ? '6px 6px 0 0' : 6,
-                border: '1px solid var(--color-border)', background: mod.enabled ? 'var(--color-surface)' : 'var(--color-surface-raised)',
-            }}>
-                {/* Drag handle */}
-                <div
-                    {...listeners} {...attributes}
-                    style={{ cursor: 'grab', color: 'var(--color-text-disabled)', fontSize: 16, padding: '0 2px', userSelect: 'none' }}
-                    aria-label="Drag to reorder"
-                >
-                    ⋮⋮
-                </div>
-
-                <label htmlFor={`module-${mod.id}-enabled`} style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: 8, flex: 1 }}>
-                    <input id={`module-${mod.id}-enabled`} type="checkbox" checked={mod.enabled} onChange={e => onToggle(e.target.checked)}
-                        style={{ accentColor: 'var(--color-primary)' }} />
-                    <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-primary)' }}>{mod.name}</span>
-                </label>
-
-                <span style={{ fontSize: 11, color: 'var(--color-text-disabled)', padding: '1px 6px', borderRadius: 4, background: 'var(--color-surface-raised)' }}>
-                    {mod.phase}
-                </span>
-
-                {mod.dependencies.length > 0 && (
-                    <span style={{ fontSize: 10, color: 'var(--color-text-disabled)' }}>needs: {mod.dependencies.join(', ')}</span>
-                )}
-
-                {mod.config_schema && (
-                    <button onClick={onExpand} style={{
-                        background: 'none', border: 'none', cursor: 'pointer', fontSize: 11,
-                        color: expanded ? 'var(--color-primary)' : 'var(--color-text-tertiary)', padding: '0 4px',
-                    }}
-                        aria-label={expanded ? 'Collapse config' : 'Expand config'}
-                    >
-                        {expanded ? 'v Config' : '> Config'}
-                    </button>
-                )}
-
-                {!mod.is_builtin && (
-                    <button onClick={onDelete} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: 'var(--color-error)', padding: '0 4px' }} aria-label="Delete module">×</button>
-                )}
-            </div>
-
-            {/* Config panel */}
-            {expanded && mod.config_schema && (
-                <div style={{
-                    padding: 16, borderRadius: '0 0 6px 6px',
-                    border: '1px solid var(--color-border)', borderTop: 'none',
-                    background: 'var(--color-surface-raised)',
-                }}>
-                    {mod.description && (
-                        <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginTop: 0, marginBottom: 12 }}>
-                            {mod.description}
-                        </p>
-                    )}
-                    <JsonSchemaForm
-                        schema={mod.config_schema as Parameters<typeof JsonSchemaForm>[0]['schema']}
-                        value={localConfig}
-                        onChange={setLocalConfig}
-                    />
-                    <button
-                        onClick={() => onConfigSave(localConfig)}
-                        style={{
-                            marginTop: 12, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 500,
-                            background: 'var(--color-primary)', color: 'var(--color-text-inverse)', border: 'none', cursor: 'pointer',
-                        }}
-                    >
-                        Save Config
-                    </button>
-                </div>
-            )}
-        </div>
-    );
-}
-
-// ─── Shared ─────────────────────────────────────────────────────────────────────
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-    return (
-        <div style={{ marginBottom: 32 }}>
-            <h3 style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 12, marginTop: 0 }}>{title}</h3>
-            {children}
-        </div>
-    );
-}
-
-function Field({ label, value, onChange, type = 'text', placeholder }: {
-    label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string;
-}) {
-    const inputId = `field-${label.toLowerCase().replace(/\s+/g, '-')}`;
-    return (
-        <div style={{ marginBottom: 12 }}>
-            <label htmlFor={inputId} style={{
-                fontSize: 12,
-                fontWeight: 500,
-                color: 'var(--color-on-surface-variant)',
-                display: 'block',
-                marginBottom: 4,
-            }}>
-                {label}
-            </label>
-            <input
-                id={inputId}
-                value={value}
-                onChange={e => onChange(e.target.value)}
-                type={type}
-                placeholder={placeholder}
-                style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    fontSize: 13,
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--color-outline-variant)',
-                    background: 'var(--color-surface-container)',
-                    color: 'var(--color-on-surface)',
-                    outline: 'none',
-                    boxSizing: 'border-box',
-                    transition: 'border-color 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                }}
-                onFocus={(e) => e.currentTarget.style.borderColor = 'var(--color-primary)'}
-                onBlur={(e) => e.currentTarget.style.borderColor = 'var(--color-outline-variant)'}
-            />
-        </div>
-    );
-}
-
-function FieldWithTest({ label, value, onChange, type = 'text', placeholder, onTest }: {
-    label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string; onTest: () => Promise<boolean>;
-}) {
-    const [testing, setTesting] = useState(false);
-    const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
-    const inputId = `field-test-${label.toLowerCase().replace(/\s+/g, '-')}`;
-
-    const handleTest = async () => {
-        setTesting(true);
-        setTestResult(null);
-        const result = await onTest();
-        setTestResult(result ? 'success' : 'error');
-        setTesting(false);
-        setTimeout(() => setTestResult(null), 3000);
-    };
-
-    return (
-        <div style={{ marginBottom: 12 }}>
-            <label htmlFor={inputId} style={{
-                fontSize: 12,
-                fontWeight: 500,
-                color: 'var(--color-on-surface-variant)',
-                display: 'block',
-                marginBottom: 4,
-            }}>
-                {label}
-            </label>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <input
-                    id={inputId}
-                    value={value}
-                    onChange={e => onChange(e.target.value)}
-                    type={type}
-                    placeholder={placeholder}
-                    style={{
-                        flex: 1,
-                        padding: '8px 12px',
-                        fontSize: 13,
-                        borderRadius: 'var(--radius-md)',
-                        border: `1px solid ${testResult === 'error' ? 'var(--color-error)' : testResult === 'success' ? 'var(--color-success)' : 'var(--color-outline-variant)'}`,
-                        background: 'var(--color-surface-container)',
-                        color: 'var(--color-on-surface)',
-                        outline: 'none',
-                        transition: 'border-color 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                    }}
-                    onFocus={(e) => {
-                        if (!testResult) e.currentTarget.style.borderColor = 'var(--color-primary)';
-                    }}
-                    onBlur={(e) => {
-                        if (!testResult) e.currentTarget.style.borderColor = 'var(--color-outline-variant)';
-                    }}
-                />
-                <button
-                    onClick={handleTest}
-                    disabled={testing || !value}
-                    style={{
-                        padding: '8px 14px',
-                        fontSize: 12,
-                        borderRadius: 'var(--radius-md)',
-                        border: 'none',
-                        background: testing || !value ? 'var(--color-surface-container-low)' : 'var(--color-primary)',
-                        color: testing || !value ? 'var(--color-on-surface-disabled)' : 'var(--color-on-primary)',
-                        cursor: testing || !value ? 'not-allowed' : 'pointer',
-                        fontWeight: 500,
-                        minWidth: 60,
-                        transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                        opacity: testing || !value ? 0.5 : 1,
-                    }}
-                >
-                    {testing ? '...' : 'Test'}
-                </button>
-                {testResult && (
-                    <span style={{
-                        fontSize: 16,
-                        color: testResult === 'success' ? 'var(--color-success)' : 'var(--color-error)',
-                    }}>
-                        {testResult === 'success' ? '✓' : '✗'}
-                    </span>
-                )}
-            </div>
-        </div>
-    );
-}
-
-function TagFieldInline({ label, tags, onChange }: { label: string; tags: string[]; onChange: (t: string[]) => void }) {
-    const [input, setInput] = useState('');
-    const inputId = `tag-field-${label.toLowerCase().replace(/\s+/g, '-')}`;
-    const addTag = () => { const v = input.trim(); if (v && !tags.includes(v)) onChange([...tags, v]); setInput(''); };
-    return (
-        <div style={{ marginBottom: 12 }}>
-            <label htmlFor={inputId} style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-tertiary)', display: 'block', marginBottom: 4 }}>{label}</label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'var(--color-surface)', minHeight: 36 }}>
-                {tags.map(t => (
-                    <span key={t} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 4, fontSize: 12, background: 'var(--color-primary-container)', color: 'var(--color-primary)' }}>
-                        {t}
-                        <button onClick={() => onChange(tags.filter(x => x !== t))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 16, padding: 0, lineHeight: 1 }} aria-label={`Remove ${t}`}>×</button>
-                    </span>
-                ))}
-                <input id={inputId} value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addTag(); } }} onBlur={addTag}
-                    style={{ flex: 1, minWidth: 80, border: 'none', outline: 'none', fontSize: 13, background: 'transparent', color: 'var(--color-text-primary)' }} />
-            </div>
-        </div>
-    );
-}
-
-function AddModuleModal({ onClose, onAdd }: {
-    onClose: () => void;
-    onAdd: (mod: { key: string; name: string; description: string; phase: string; n8n_workflow_id: string }) => void;
-}) {
-    const [name, setName] = useState('');
-    const [phase, setPhase] = useState('scraping');
-    const [workflowId, setWorkflowId] = useState('');
-    const [desc, setDesc] = useState('');
-    return (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }} onClick={onClose}>
-            <div onClick={e => e.stopPropagation()} style={{ width: 400, background: 'var(--color-surface)', borderRadius: 12, padding: 24, border: '1px solid var(--color-border)' }}>
-                <h3 style={{ marginTop: 0, fontSize: 15, fontWeight: 600 }}>Add Custom Module</h3>
-                <Field label="Module Name" value={name} onChange={setName} />
-                <Field label="Description" value={desc} onChange={setDesc} />
-                <div style={{ marginBottom: 12 }}>
-                    <label htmlFor="phase-select" style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-tertiary)', display: 'block', marginBottom: 4 }}>Phase</label>
-                    <select id="phase-select" value={phase} onChange={e => setPhase(e.target.value)} style={{ width: '100%', padding: '8px 12px', fontSize: 13, borderRadius: 6, border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-primary)', outline: 'none' }}>
-                        <option value="scraping">Scraping</option>
-                        <option value="processing">Processing</option>
-                        <option value="output">Output</option>
-                    </select>
-                </div>
-                <Field label="n8n Workflow ID" value={workflowId} onChange={setWorkflowId} />
-                <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
-                    <button onClick={onClose} style={{ padding: '6px 14px', borderRadius: 6, fontSize: 12, background: 'transparent', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)', cursor: 'pointer' }}>Cancel</button>
-                    <button onClick={() => onAdd({ key: name.toLowerCase().replace(/ /g, '-'), name, description: desc, phase, n8n_workflow_id: workflowId })} disabled={!name || !workflowId}
-                        style={{ padding: '6px 14px', borderRadius: 6, fontSize: 12, background: 'var(--color-primary)', color: 'var(--color-text-inverse)', border: 'none', cursor: 'pointer' }}>Add</button>
-                </div>
-            </div>
-        </div>
-    );
-}

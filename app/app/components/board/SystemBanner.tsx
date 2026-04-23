@@ -18,7 +18,7 @@ export default function SystemBanner({ type, running, result, message, onDismiss
         if (!running && !result) return null;
 
         return (
-            <div style={{
+            <div role="status" aria-live="polite" style={{
                 position: 'fixed',
                 bottom: 0,
                 left: 0,
@@ -76,7 +76,7 @@ export default function SystemBanner({ type, running, result, message, onDismiss
             bg: 'var(--color-warning-container)',
             border: 'var(--color-warning)',
             text: 'var(--color-warning)',
-            icon: '⚠',
+            icon: '!',
         },
         info: {
             bg: 'var(--color-info-container)',
@@ -90,7 +90,7 @@ export default function SystemBanner({ type, running, result, message, onDismiss
     if (!style) return null;
 
     return (
-        <div style={{
+        <div role="status" aria-live="polite" style={{
             position: 'fixed',
             bottom: 0,
             left: 0,

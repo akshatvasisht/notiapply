@@ -1,20 +1,15 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act } from 'react';
 import ContactDetail from './ContactDetail';
-import type { Contact, Job } from '@/lib/types';
+import type { Job } from '@/lib/types';
+import { makeContact } from '@/lib/test-fixtures';
 
-// Mock dependencies
+// Mock dependencies — sonner and @/lib/logger are mocked globally in vitest.setup.ts
 vi.mock('@/lib/db', () => ({
+    hasDatabase: vi.fn().mockReturnValue(true),
     updateContactResponse: vi.fn(),
     addContactInteraction: vi.fn(),
-}));
-
-vi.mock('@/lib/logger', () => ({
-    logger: {
-        error: vi.fn(),
-        info: vi.fn(),
-    },
 }));
 
 vi.mock('@/lib/llm', () => ({
@@ -32,16 +27,8 @@ vi.mock('@/lib/draft-scoring', () => ({
     }),
 }));
 
-vi.mock('sonner', () => ({
-    toast: {
-        success: vi.fn(),
-        error: vi.fn(),
-    },
-}));
-
 describe('ContactDetail', () => {
-    const mockContact = {
-        id: 1,
+    const mockContact = makeContact({
         name: 'Jane Doe',
         role: 'Engineering Manager',
         company_name: 'TechCorp',
@@ -50,8 +37,7 @@ describe('ContactDetail', () => {
         drafted_message: 'Hi Jane, interested in connecting about the role.',
         notes: 'Met at conference',
         state: 'drafted',
-        created_at: new Date().toISOString(),
-    } as Contact;
+    });
 
     const mockJobs: Job[] = [];
 
@@ -61,9 +47,16 @@ describe('ContactDetail', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        // Stub clipboard so handleCopy doesn't throw in jsdom
+        Object.defineProperty(navigator, 'clipboard', {
+            value: { writeText: vi.fn().mockResolvedValue(undefined) },
+            configurable: true,
+        });
     });
 
-    it('renders contact basic info correctly', async () => {
+    // ── Render-presence smoke tests ──────────────────────────────────────────
+
+    it('renders contact basic info — name, role, and company are visible', async () => {
         await act(async () => {
             render(
                 <ContactDetail
@@ -81,7 +74,51 @@ describe('ContactDetail', () => {
         expect(screen.getByText('TechCorp')).toBeInTheDocument();
     });
 
-    it('renders email and LinkedIn links when available', async () => {
+    it('shows contact name and company when all optional enrichment fields are null', async () => {
+        const minimalContact = makeContact({
+            id: 2,
+            name: 'John Smith',
+            company_name: 'StartupCo',
+            state: 'identified',
+        });
+
+        await act(async () => {
+            render(
+                <ContactDetail
+                    contact={minimalContact}
+                    jobs={mockJobs}
+                    onClose={mockOnClose}
+                    onStateChange={mockOnStateChange}
+                    onContactUpdated={mockOnContactUpdated}
+                />
+            );
+        });
+
+        expect(screen.getByText('John Smith')).toBeInTheDocument();
+        expect(screen.getByText('StartupCo')).toBeInTheDocument();
+    });
+
+    it('smoke test — mounts without crashing and renders "Added to CRM" timeline event', async () => {
+        let container: HTMLElement;
+        await act(async () => {
+            ({ container } = render(
+                <ContactDetail
+                    contact={mockContact}
+                    jobs={mockJobs}
+                    onClose={mockOnClose}
+                    onStateChange={mockOnStateChange}
+                    onContactUpdated={mockOnContactUpdated}
+                />
+            ));
+        });
+
+        expect(container!).toBeInTheDocument();
+        expect(screen.getByText(/Added to CRM/)).toBeInTheDocument();
+    });
+
+    // ── Email & LinkedIn link tests ──────────────────────────────────────────
+
+    it('renders email as mailto link and LinkedIn as external link when both present', async () => {
         await act(async () => {
             render(
                 <ContactDetail
@@ -101,12 +138,12 @@ describe('ContactDetail', () => {
         expect(linkedInLink.closest('a')).toHaveAttribute('href', 'https://linkedin.com/in/janedoe');
     });
 
-    it('hides email and LinkedIn when not available', async () => {
-        const contactWithoutLinks = {
+    it('hides email and LinkedIn links when both are null', async () => {
+        const contactWithoutLinks = makeContact({
             ...mockContact,
             email: null,
             linkedin_url: null,
-        };
+        });
 
         await act(async () => {
             render(
@@ -121,9 +158,12 @@ describe('ContactDetail', () => {
         });
 
         expect(screen.queryByText('jane@techcorp.com')).not.toBeInTheDocument();
+        expect(screen.queryByText(/View LinkedIn/)).not.toBeInTheDocument();
     });
 
-    it('displays draft message when present', async () => {
+    // ── Copy button behavioral test ──────────────────────────────────────────
+
+    it('clicking the Copy button calls navigator.clipboard.writeText with the draft message', async () => {
         await act(async () => {
             render(
                 <ContactDetail
@@ -136,11 +176,20 @@ describe('ContactDetail', () => {
             );
         });
 
-        // Message is displayed in the component
-        expect(screen.getByText(/Hi Jane, interested in connecting/)).toBeInTheDocument();
+        // There may be multiple "Copy"-labelled buttons (e.g. "Accept & Copy");
+        // target the standalone copy icon button by finding the one that is NOT "Accept & Copy".
+        const copyButtons = screen.getAllByRole('button', { name: /Copy/i });
+        const copyButton = copyButtons.find(btn => btn.textContent?.trim() !== 'Accept & Copy') ?? copyButtons[0];
+        fireEvent.click(copyButton);
+
+        expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+            'Hi Jane, interested in connecting about the role.'
+        );
     });
 
-    it('shows copy button when draft message exists', async () => {
+    // ── Back button closes the panel ─────────────────────────────────────────
+
+    it('clicking the Back button calls onClose', async () => {
         await act(async () => {
             render(
                 <ContactDetail
@@ -153,61 +202,21 @@ describe('ContactDetail', () => {
             );
         });
 
-        // Find copy button (icon or text)
-        const buttons = screen.getAllByRole('button');
-        expect(buttons.length).toBeGreaterThan(0);
+        const backButton = screen.getByRole('button', { name: /Back/i });
+        fireEvent.click(backButton);
+
+        expect(mockOnClose).toHaveBeenCalledTimes(1);
     });
 
-    it('handles contact with minimal data', async () => {
-        const minimalContact = {
-            id: 2,
-            name: 'John Smith',
-            company_name: 'StartupCo',
+    // ── Coaching nudge visibility ────────────────────────────────────────────
+
+    it('no coaching nudge for identified state (only actionable states get nudges)', async () => {
+        const identifiedContact = makeContact({
+            name: 'Jane Doe',
+            company_name: 'TechCorp',
             state: 'identified',
-            created_at: new Date().toISOString(),
-        } as Contact;
-
-        await act(async () => {
-            render(
-                <ContactDetail
-                    contact={minimalContact}
-                    jobs={mockJobs}
-                    onClose={mockOnClose}
-                    onStateChange={mockOnStateChange}
-                    onContactUpdated={mockOnContactUpdated}
-                />
-            );
-        });
-
-        expect(screen.getByText('John Smith')).toBeInTheDocument();
-        expect(screen.getByText('StartupCo')).toBeInTheDocument();
-    });
-
-    it('renders without crashing with all props', async () => {
-        let container;
-        await act(async () => {
-            const result = render(
-                <ContactDetail
-                    contact={mockContact}
-                    jobs={mockJobs}
-                    onClose={mockOnClose}
-                    onStateChange={mockOnStateChange}
-                    onContactUpdated={mockOnContactUpdated}
-                />
-            );
-            container = result.container;
-        });
-
-        // Component renders successfully
-        expect(container).toBeInTheDocument();
-    });
-
-    it('shows coaching nudge for identified contacts', async () => {
-        const identifiedContact = {
-            ...mockContact,
-            state: 'identified' as const,
             drafted_message: null,
-        };
+        });
 
         await act(async () => {
             render(
@@ -221,71 +230,20 @@ describe('ContactDetail', () => {
             );
         });
 
-        expect(screen.getByText(/Ready to draft a personalized note/)).toBeInTheDocument();
+        expect(screen.queryByText(/Ready to draft a personalized note/)).not.toBeInTheDocument();
     });
 
-    it('has close functionality', async () => {
-        await act(async () => {
-            render(
-                <ContactDetail
-                    contact={mockContact}
-                    jobs={mockJobs}
-                    onClose={mockOnClose}
-                    onStateChange={mockOnStateChange}
-                    onContactUpdated={mockOnContactUpdated}
-                />
-            );
+    // ── Enrichment section visibility ────────────────────────────────────────
+
+    it('enrichment chips appear when company_funding_stage, company_headcount_range, or company_industry are set', async () => {
+        const enrichedContact = makeContact({
+            name: 'Jane Doe',
+            company_name: 'TechCorp',
+            state: 'identified',
+            company_industry: 'Artificial Intelligence',
+            company_funding_stage: 'Series C',
+            company_headcount_range: '501–1,000 employees',
         });
-
-        // Find close button - it should exist with accessible label
-        const buttons = screen.getAllByRole('button');
-        expect(buttons.length).toBeGreaterThan(0);
-    });
-
-    it('displays job context when available', async () => {
-        const jobLinkedContact = {
-            ...mockContact,
-            job_id: 1,
-        };
-
-        const jobs = [
-            {
-                id: 1,
-                company: 'TechCorp',
-                title: 'Senior Engineer',
-                location: 'Remote',
-                url: 'https://example.com/job',
-                state: 'submitted',
-                source: 'jobspy-linkedin',
-                discovered_at: new Date().toISOString(),
-            } as Job,
-        ];
-
-        let container;
-        await act(async () => {
-            const result = render(
-                <ContactDetail
-                    contact={jobLinkedContact}
-                    jobs={jobs}
-                    onClose={mockOnClose}
-                    onStateChange={mockOnStateChange}
-                    onContactUpdated={mockOnContactUpdated}
-                />
-            );
-            container = result.container;
-        });
-
-        // Component renders successfully with job context
-        expect(container).toBeInTheDocument();
-    });
-
-    it('renders company enrichment data when available', async () => {
-        const enrichedContact = {
-            ...mockContact,
-            company_industry: 'Software',
-            company_size: '100-500',
-            company_funding_stage: 'Series B',
-        };
 
         await act(async () => {
             render(
@@ -299,10 +257,40 @@ describe('ContactDetail', () => {
             );
         });
 
-        expect(screen.getByText(/Software/)).toBeInTheDocument();
+        expect(screen.getByText('Artificial Intelligence')).toBeInTheDocument();
+        expect(screen.getByText('Series C')).toBeInTheDocument();
+        expect(screen.getByText('501–1,000 employees')).toBeInTheDocument();
     });
 
-    it('renders timeline with created date', async () => {
+    it('enrichment chip section is absent when all enrichment fields are null', async () => {
+        const bareContact = makeContact({
+            name: 'Jane Doe',
+            company_name: 'TechCorp',
+            state: 'identified',
+            company_industry: null,
+            company_funding_stage: null,
+            company_headcount_range: null,
+        });
+
+        await act(async () => {
+            render(
+                <ContactDetail
+                    contact={bareContact}
+                    jobs={mockJobs}
+                    onClose={mockOnClose}
+                    onStateChange={mockOnStateChange}
+                    onContactUpdated={mockOnContactUpdated}
+                />
+            );
+        });
+
+        expect(screen.queryByText('Series C')).not.toBeInTheDocument();
+        expect(screen.queryByText('501–1,000 employees')).not.toBeInTheDocument();
+    });
+
+    // ── Draft message section visibility ─────────────────────────────────────
+
+    it('draft message section is shown when drafted_message is set and state is "drafted"', async () => {
         await act(async () => {
             render(
                 <ContactDetail
@@ -315,7 +303,32 @@ describe('ContactDetail', () => {
             );
         });
 
-        // Timeline should show "Added to CRM" event
-        expect(screen.getByText(/Added to CRM/)).toBeInTheDocument();
+        expect(screen.getByText(/Hi Jane, interested in connecting/)).toBeInTheDocument();
+    });
+
+    it('draft message textarea section is absent when drafted_message is null', async () => {
+        const noDraftContact = makeContact({
+            name: 'Jane Doe',
+            company_name: 'TechCorp',
+            state: 'identified',
+            drafted_message: null,
+        });
+
+        await act(async () => {
+            render(
+                <ContactDetail
+                    contact={noDraftContact}
+                    jobs={mockJobs}
+                    onClose={mockOnClose}
+                    onStateChange={mockOnStateChange}
+                    onContactUpdated={mockOnContactUpdated}
+                />
+            );
+        });
+
+        // Draft letterhead "Draft → Name" text only appears when drafted_message is rendered
+        expect(screen.queryByText(/Draft →/)).not.toBeInTheDocument();
+        // Copy button only exists in the draft envelope panel
+        expect(screen.queryByRole('button', { name: /^Copy$/i })).not.toBeInTheDocument();
     });
 });

@@ -1,5 +1,8 @@
-export function timeAgo(dateStr: string): string {
-    const diff = Date.now() - new Date(dateStr).getTime();
+export function timeAgo(dateStr: string | null | undefined): string {
+    if (!dateStr) return '—';
+    const time = new Date(dateStr).getTime();
+    if (!Number.isFinite(time)) return '—';
+    const diff = Date.now() - time;
     if (diff < 0) return 'Just now'; // Handle future dates gracefully in tests
     const mins = Math.floor(diff / 60000);
     if (mins < 60) return `${mins}m ago`;

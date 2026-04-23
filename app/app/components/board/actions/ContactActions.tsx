@@ -1,34 +1,32 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef } from 'react';
+import ActionMenu from '../../common/ActionMenu';
+import type { MenuItemDef } from '../../common/ActionMenu';
 
 export interface ContactActionsProps {
     identifiedCount: number;
+    draftedWithEmailCount?: number;
+    draftingMessages?: boolean;
     onDraftMessages?: () => void;
+    onSendEmails?: () => void;
     onExportCSV?: () => void;
 }
 
 export default function ContactActions({
     identifiedCount,
+    draftedWithEmailCount = 0,
+    draftingMessages = false,
     onDraftMessages,
+    onSendEmails,
     onExportCSV,
 }: ContactActionsProps) {
     const [menuOpen, setMenuOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
 
-    // Close menu on outside click
-    useEffect(() => {
-        const handler = (e: MouseEvent) => {
-            if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-                setMenuOpen(false);
-            }
-        };
-        document.addEventListener('mousedown', handler);
-        return () => document.removeEventListener('mousedown', handler);
-    }, []);
-
     // Draft button styling based on state (matching Start Session)
-    const draftBtnStyle: React.CSSProperties = identifiedCount > 0 ? {
+    const draftDisabled = identifiedCount === 0 || draftingMessages;
+    const draftBtnStyle: React.CSSProperties = identifiedCount > 0 && !draftingMessages ? {
         background: 'var(--color-primary)',
         color: 'var(--color-on-primary)',
         boxShadow: 'var(--elevation-1)',
@@ -38,25 +36,47 @@ export default function ContactActions({
         border: '1px solid var(--color-outline)',
     };
 
+    const menuItems: MenuItemDef[] = [
+        {
+            label: 'Export CSV',
+            sublabel: 'Download contacts list',
+            onClick: () => {
+                onExportCSV?.();
+                setMenuOpen(false);
+            },
+        },
+        {
+            label: 'Send Drafted Emails',
+            sublabel: draftedWithEmailCount > 0 ? `${draftedWithEmailCount} contact${draftedWithEmailCount > 1 ? 's' : ''} ready to send` : 'No contacts with email ready',
+            title: draftedWithEmailCount === 0 ? 'No drafted contacts with an email address are ready to send' : undefined,
+            onClick: () => {
+                onSendEmails?.();
+                setMenuOpen(false);
+            },
+            disabled: draftedWithEmailCount === 0,
+        },
+    ];
+
     return (
         <>
             {/* Primary action: Draft Messages */}
             <button
-                onClick={onDraftMessages}
-                disabled={identifiedCount === 0}
+                onClick={draftDisabled ? undefined : onDraftMessages}
+                disabled={draftDisabled}
                 style={{
                     padding: '8px 18px',
                     borderRadius: 20,
                     fontSize: 13,
                     fontWeight: 500,
                     letterSpacing: '0.5px',
-                    cursor: identifiedCount === 0 ? 'not-allowed' : 'pointer',
+                    cursor: draftDisabled ? 'not-allowed' : 'pointer',
                     border: 'none',
+                    opacity: draftingMessages ? 0.6 : 1,
                     transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                     ...draftBtnStyle,
                 }}
             >
-                ▸ Draft Messages
+                {draftingMessages ? '⟳ Drafting…' : '▸ Draft Messages'}
             </button>
 
             {/* Overflow menu */}
@@ -79,94 +99,13 @@ export default function ContactActions({
                     ⋮
                 </button>
 
-                {menuOpen && (
-                    <div
-                        style={{
-                            position: 'absolute',
-                            top: 'calc(100% + 8px)',
-                            right: 0,
-                            zIndex: 50,
-                            background: 'var(--color-surface-container-high)',
-                            border: 'none',
-                            borderRadius: 16,
-                            boxShadow: 'var(--elevation-3)',
-                            minWidth: 220,
-                            overflow: 'hidden',
-                            padding: '8px 0',
-                            animation: 'scaleIn 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                        }}
-                    >
-                        <MenuItem
-                            label="⬇ Export CSV"
-                            sublabel="Download contacts list"
-                            onClick={() => {
-                                onExportCSV?.();
-                                setMenuOpen(false);
-                            }}
-                        />
-                    </div>
-                )}
+                <ActionMenu
+                    items={menuItems}
+                    open={menuOpen}
+                    onClose={() => setMenuOpen(false)}
+                    containerRef={menuRef}
+                />
             </div>
         </>
-    );
-}
-
-// ─── Menu Item ──────────────────────────────────────────────────────────────
-
-function MenuItem({
-    label,
-    sublabel,
-    onClick,
-    disabled = false,
-}: {
-    label: string;
-    sublabel?: string;
-    onClick: () => void;
-    disabled?: boolean;
-}) {
-    const [hovered, setHovered] = useState(false);
-    return (
-        <button
-            onClick={disabled ? undefined : onClick}
-            disabled={disabled}
-            onMouseEnter={() => setHovered(true)}
-            onMouseLeave={() => setHovered(false)}
-            style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'flex-start',
-                width: '100%',
-                padding: '10px 16px',
-                border: 'none',
-                cursor: disabled ? 'default' : 'pointer',
-                background: hovered && !disabled ? 'var(--color-secondary-container)' : 'transparent',
-                opacity: disabled ? 0.5 : 1,
-                transition: 'background 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                textAlign: 'left',
-            }}
-        >
-            <span
-                style={{
-                    fontSize: 14,
-                    color: 'var(--color-on-surface)',
-                    fontWeight: 500,
-                    letterSpacing: '0.1px',
-                }}
-            >
-                {label}
-            </span>
-            {sublabel && (
-                <span
-                    style={{
-                        fontSize: 12,
-                        color: 'var(--color-on-surface-variant)',
-                        marginTop: 2,
-                        letterSpacing: '0.4px',
-                    }}
-                >
-                    {sublabel}
-                </span>
-            )}
-        </button>
     );
 }

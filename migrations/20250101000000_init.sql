@@ -1,4 +1,3 @@
--- migrate:up
 
 -- user_config
 CREATE TABLE user_config (
@@ -112,15 +111,3 @@ SELECT ats_platform,
 FROM applications a JOIN jobs j ON j.id = a.job_id
 WHERE a.ats_platform IS NOT NULL GROUP BY a.ats_platform;
 
--- migrate:down
-DROP VIEW IF EXISTS ats_failure_counts;
-DROP TABLE IF EXISTS resume_diffs;
-DROP TABLE IF EXISTS applications;
-DROP TABLE IF EXISTS fill_sessions;
-DROP TABLE IF EXISTS github_poll_state;
-DROP TABLE IF EXISTS scraped_companies;
-DROP TABLE IF EXISTS jobs;
-DROP TABLE IF EXISTS cover_letter_templates;
-DROP TABLE IF EXISTS master_resume;
-DROP TABLE IF EXISTS pipeline_modules;
-DROP TABLE IF EXISTS user_config;

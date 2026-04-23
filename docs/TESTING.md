@@ -38,14 +38,10 @@ cargo test
 ```
 
 ### Python Server Logic
-Validates the resume tailoring engine and scraper data schemas.
+Validates the resume tailoring engine, scraper data schemas, relevance scoring, and liveness checks.
 
 ```bash
-# Verify resume tailoring logic
-python3 server/tests/test_apply_diff_logic.py
-
-# Verify scraper schema validation
-python3 server/tests/test_pydantic_schemas.py
+cd server && pytest tests/ -v
 ```
 
 ## Environment Setup

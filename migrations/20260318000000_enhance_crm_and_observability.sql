@@ -1,4 +1,3 @@
--- migrate:up
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- CRM Enhancement: Follow-up tracking, intro source, interaction logging
@@ -102,22 +101,3 @@ ORDER BY scraper_key, started_at DESC;
 
 COMMENT ON COLUMN jobs.source IS 'Valid sources: jobspy-*, ats-*, github-simplify, wellfound, manual';
 
--- migrate:down
-
-DROP VIEW IF EXISTS latest_scraper_runs;
-DROP TABLE IF EXISTS scraper_runs;
-
-DROP TRIGGER IF EXISTS contacts_updated_at_trigger ON contacts;
-DROP TRIGGER IF EXISTS jobs_updated_at_trigger ON jobs;
-DROP FUNCTION IF EXISTS update_updated_at_column();
-
-ALTER TABLE contacts DROP COLUMN IF EXISTS updated_at;
-ALTER TABLE contacts DROP COLUMN IF EXISTS got_response;
-ALTER TABLE contacts DROP COLUMN IF EXISTS interaction_log;
-ALTER TABLE contacts DROP COLUMN IF EXISTS last_contacted_at;
-ALTER TABLE contacts DROP COLUMN IF EXISTS intro_source;
-ALTER TABLE contacts DROP COLUMN IF EXISTS follow_up_date;
-
-ALTER TABLE jobs DROP COLUMN IF EXISTS updated_at;
-ALTER TABLE jobs DROP COLUMN IF EXISTS callback_notes;
-ALTER TABLE jobs DROP COLUMN IF EXISTS got_callback;

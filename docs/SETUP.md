@@ -1,79 +1,73 @@
 # Setting Up Notiapply
 
-Notiapply consists of three localized domains: the scraping fleet (usually headless), the automation sidecar, and the desktop UI.
+Notiapply ships two deployment shapes, both built on the same Docker Compose stack at `deploy/docker/` (postgres + n8n + FastAPI runner):
 
-## System Prerequisites
+- **All-in-one local**: the compose stack and the Tauri desktop app run on the same machine. Easiest for development.
+- **Split-brain**: the compose stack runs on a 24/7 VPS (e.g. an Oracle Free Tier ARM instance, a Hetzner CX22, or similar); the Tauri desktop app runs on your laptop and points at the remote n8n/DB over Tailscale.
 
-- **Node.js**: v20 or higher.
-- **Python**: v3.10 or higher.
-- **Rust Toolchain**: `cargo` and `rustc` for building the Tauri app.
-- **System Dependencies**: `libwebkit2gtk-4.1-dev` (Linux), `build-essential`, `curl`.
+The backend stack is identical in both shapes. Only the networking between the Tauri app and the backend changes.
 
-## Deployment Options
+## Prerequisites
 
-Notiapply can execute entirely on your local machine, or run a "split brain" architecture where the entire backend pipeline (PostgreSQL database, Python scraping fleet, and **n8n orchestrator**) lives on a 24/7 remote server (e.g. an Oracle Free Tier ARM instance or AWS EC2) and the Tauri desktop app connects to it remotely.
+- **Docker**: 24+ with the `compose` plugin (required for the backend stack).
+- **Node.js**: v20 or higher (required for the Tauri frontend and the Playwright sidecar).
+- **Python**: v3.10 or higher (only needed if you want to run scraper code outside of Docker for development).
+- **Rust toolchain**: `cargo` and `rustc` (only needed to build the Tauri desktop binary).
+- **System dependencies** for Tauri on Linux: `libwebkit2gtk-4.1-dev`, `build-essential`, `curl`.
 
-### Option 1: The Idempotent Bootstrap (Recommended for Remote DB/Scraper)
+## Quick Start: All-in-One Local
 
-The included `bootstrap.sh` script installs the entire backend pipeline. It is idempotent, meaning it is safe to run multiple times.
+1. **Backend stack.** Follow `deploy/docker/README.md` to bring up postgres, n8n, and the runner locally. That guide is the authoritative source for compose commands, migrations, and initial config.
 
-```bash
-chmod +x bootstrap.sh
-./bootstrap.sh
-```
+2. **Frontend (Tauri + Next.js).**
+   ```bash
+   cd app
+   npm install
+   npm run dev        # Next.js dev server on localhost:3000
+   # or
+   npx tauri dev      # Tauri desktop window with hot reload
+   ```
 
-**What it does:**
-1. Installs the Tectonic LaTeX pipeline.
-2. Maps a Python `venv` and installs scraper dependencies.
-3. Installs global OS tools (dbmate, Chromium).
-4. Provisions a local PostgreSQL instance.
-5. Runs the `dbmate up` database migrations.
-6. Sets up the n8n global process and registers it as a systemd service.
+3. **Sidecar (Playwright form-filler).**
+   ```bash
+   cd sidecar
+   npm install
+   ```
+   The sidecar is invoked on demand by the Tauri app — no persistent process to start.
 
-### Option 2: Local Desktop Setup
+4. Open the desktop app, complete the setup wizard, and point the n8n webhook URL at `http://localhost:5678/webhook/notiapply-run` (or whatever the compose stack exposes).
 
-If you wish to run the entire pipeline directly on your personal machine without the bootstrap script:
+## Quick Start: Split-Brain on a VPS
 
-#### 1. Database Initialization
-```bash
-# Provide a valid POSTGRES_URL string
-export DATABASE_URL="postgres://user:pass@localhost:5432/notiapply"
+1. **Deploy the backend.** Copy `deploy/docker/` to your VPS and follow the same `README.md` there. Any x86_64 or ARM64 host with Docker works; Oracle Free Tier is a common choice because the ARM shape is persistently free.
 
-# Run migrations
-dbmate -d migrations up
-```
+2. **Expose n8n over Tailscale.** Install Tailscale on the VPS and use `tailscale serve` to publish n8n on your tailnet. The exact command and TLS setup live in `deploy/docker/README.md`. The result is a stable `https://<host>.<tailnet>.ts.net` URL reachable from any device on your tailnet.
 
-#### 2. Sidecar Initialization
-The Playwright sidecar requires local node modules to function.
-```bash
-cd sidecar
-npm install
-```
+3. **Install the frontend locally.**
+   ```bash
+   cd app
+   npm install
+   cd ../sidecar
+   npm install
+   ```
 
-#### 3. Tauri Desktop Application
-The desktop shell runs on Next.js 16 and Tauri v2.
+4. **Point Tauri at the remote n8n.** In the desktop app's Settings (or seeded via `user_config`), set `n8n_webhook_url` to the tailnet URL from step 2. Set `DATABASE_URL` in your local `.env` to the remote postgres (also reachable via Tailscale).
+
+## Production Tauri Build
 
 ```bash
 cd app
-npm install
-
-# Start the development server and the Tauri window
-npx tauri dev
-```
-
-For a production release:
-```bash
 npx tauri build
 ```
 
-The compiled binary will be located in `app/src-tauri/target/release/`.
+The compiled binary lands in `app/src-tauri/target/release/`.
 
 ## Configuration Workflow
 
-1. Open the Tauri application.
-2. Complete the initial 4-step **Setup Wizard**.
-   - Input your Google AI Studio (`gemini-1.5-flash`) API Key.
-   - Attach your baseline `.tex` master resume. Generic templates are provided in [docs/examples/](examples/).
-   - Define your target behavioral tags and ATS platform watchlist.
-3. Once in the Kanban board, access the **Settings** panel to configure the n8n webhook URLs if operating in the remote-split architecture.
-4. Jobs will populate in the `incoming` and `ready` columns as the Python fleet executes.
+1. Launch the Tauri app.
+2. Complete the 4-step Setup Wizard:
+   - LLM API key (Google AI Studio `gemini-1.5-flash`, or any OpenAI-compatible endpoint).
+   - Master `.tex` resume. Generic templates are in [examples/](examples/).
+   - Target tags and ATS watchlist.
+3. Confirm n8n webhook URLs in Settings (local `localhost:5678` or the tailnet URL).
+4. Jobs populate in the Kanban board as the n8n cron fires.

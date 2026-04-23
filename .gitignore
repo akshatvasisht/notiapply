@@ -46,9 +46,11 @@ Thumbs.db
 *.exe
 *.msi
 
-# Agent Context
-agentcontext/
-
 # Test Reports
 app/playwright-report/
 app/test-results/
+.gitnexus
+
+# agent artifacts
+.claude
+agentcontext/

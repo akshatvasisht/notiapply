@@ -4,8 +4,9 @@ pydantic==2.10.6
 openai==1.59.8
 
 # Web Scraping
-crawl4ai==0.4.250
 scrapling==0.2.1
+trafilatura==1.12.2  # HTML → clean markdown for enrichment/crawler.py
+python-jobspy==1.1.82  # Tier 1 job board scraper (scraper/jobspy_run.py)
 
 # Database
 psycopg2-binary==2.9.10
@@ -13,6 +14,7 @@ psycopg2-binary==2.9.10
 # Utilities
 python-dotenv==1.0.1
 tenacity==9.0.0  # Retry logic for resilient scraping
+structlog>=24.4.0
 
 # Gmail API (for reply detection)
 google-auth-oauthlib==1.2.0

@@ -13,7 +13,8 @@ This document details the architectural layout, core components, and data lifecy
   - **Tier 3**: GitHub Markdown table parsing.
   - **Tier 4**: Complex JS-rendered state blobs (Wellfound via CF-Clearance).
 - **Scrapling + Camoufox**: The browser-fingerprint spoofing layer used by Tier 4 (Wellfound) to transparently bypass Cloudflare without a proxy or paid service.
-- **n8n Orchestrator**: The workflow engine responsible for handling incoming webhook triggers, executing the Python scrapers, and inserting structured results into the Postgres database.
+- **n8n Orchestrator**: The workflow engine responsible for handling incoming webhook triggers, dispatching scraper runs via HTTP to the runner service, and inserting structured results into the Postgres database.
+- **Runner Service**: A FastAPI container (`deploy/docker/runner.Dockerfile`) that lives alongside n8n and postgres in the compose stack. n8n calls it over the compose internal network; the runner subprocess-dispatches to the existing Python scripts under `server/scraper/`.
 
 ---
 
@@ -60,7 +61,7 @@ Notiapply maps entirely to a local execution environment or a self-hosted instan
 
 **3. The Python Fleet (`server/`)**
 - Four independent python scripts that connect out to varying data sources.
-- Operates statelessly; invoked by the n8n orchestrator via standard shell commands.
+- Operates statelessly. Python scraper and generator code runs inside a FastAPI `runner` container; n8n invokes it via HTTP on the compose internal network, and the runner subprocess-dispatches to the underlying scripts.
 - `apply_diff.py` acts as the document mutation engine, combining LLM-generated bullet injections with the Master Resume template.
 
 **4. The PostgreSQL Database**
@@ -75,15 +76,15 @@ Notiapply maps entirely to a local execution environment or a self-hosted instan
 
 **Phase 1: Discovery**
 1. The n8n orchestrator runs a cron trigger (or is manually invoked via the UI).
-2. It executes the Python Tier 1-4 scrapers.
-3. The scrapers generate deduplicated hashes based on `title + company + location` and insert new rows into the `jobs` table with a state of `incoming`.
+2. It HTTP-calls the runner service, which dispatches the Python Tier 1-4 scrapers.
+3. The scrapers generate deduplicated hashes based on `title + company + location` and insert new rows into the `jobs` table with a state of `discovered`.
 
 **Phase 2: LLM Mutation**
 1. A secondary n8n workflow detects the `incoming` job.
 2. It hits the Gemini LLM endpoint with the job description and the user's master resume.
 3. The LLM selects high-relevance experience/project blocks using `% <BLOCK:Name>` tags and generates a tailored diff for the remaining content.
 4. `apply_diff.py` performs block-level truncation, modifies the LaTeX template, and compiles the new `resume_{job_id}.pdf`.
-5. The job state advances to `ready`.
+5. The job state advances to `queued`.
 
 ### Tailoring Methodology
 
@@ -97,12 +98,12 @@ Notiapply uses two distinct rigor models for application documents:
 2. The Tauri shell spawns the `fill.js` sidecar.
 3. The sidecar dynamically fills the ATS form.
 4. If successful, the sidecar marks the job as `submitted` in Postgres.
-5. If an anomaly is hit (unknown schema, CAPTCHA), it marks it as `attention` and gracefully exits.
+5. If an anomaly is hit (unknown schema, CAPTCHA), it marks it as `review-incomplete` or `fill-failed` and gracefully exits.
 
 ## Design Decisions
 
 ### UI-Decoupled Scraping
-The heavy lifting (discovery and document generation) is physically decoupled from the React UI. A user can run the `bootstrap.sh` script on a remote Oracle instance, allowing the n8n orchestrator to scrape 24/7. When the user opens the desktop app, their queue is already populated.
+The heavy lifting (discovery and document generation) is physically decoupled from the React UI. A user can deploy the compose stack at `deploy/docker/` on a remote VPS (e.g. an Oracle ARM free-tier instance), allowing the n8n orchestrator to scrape 24/7. When the user opens the desktop app, their queue is already populated.
 
 ### Playwright via Sidecar
 Instead of wrestling with WebKit limits inside Tauri, automation is distinctly offloaded to a Node sidecar running full Chromium. The NDJSON interface ensures the Tauri app never blocks its main thread on a hung DOM element, and if Chromium crashes, the UI remains perfectly stable.

@@ -65,7 +65,7 @@ async function createBrowserAgent(config) {
 
 Credentials:
 - Email: ${email}
-- Password: ${password}
+- Password: (provided at runtime, use value "\${password}")
 
 Current URL: ${url}
 
@@ -73,7 +73,7 @@ Analyze the page and provide step-by-step login instructions. Return a JSON arra
 
 [
   { "action": "fill", "selector": "input[type='email']", "value": "${email}", "description": "Fill email" },
-  { "action": "fill", "selector": "input[type='password']", "value": "${password}", "description": "Fill password" },
+  { "action": "fill", "selector": "input[type='password']", "value": "\${password}", "description": "Fill password" },
   { "action": "click", "selector": "button[type='submit']", "description": "Click login button" }
 ]
 
@@ -98,7 +98,13 @@ Return ONLY valid JSON array, no markdown formatting.`;
                 temperature
             });
 
-            const parsedActions = JSON.parse(actions);
+            let parsedActions;
+            try {
+                parsedActions = JSON.parse(actions);
+            } catch (err) {
+                throw new Error(`LLM returned invalid JSON for login actions: ${err.message}`);
+            }
+            if (!Array.isArray(parsedActions)) throw new Error('LLM login response must be a JSON array');
             for (const action of parsedActions) {
                 await executeAction(page, action, { email, password }, actionTimeout);
             }
@@ -118,7 +124,7 @@ Return ONLY valid JSON array, no markdown formatting.`;
 
 User Information:
 - Email: ${userData.email}
-- Password: ${userData.password}
+- Password: (provided at runtime, use value "\${password}")
 - First Name: ${userData.firstName}
 - Last Name: ${userData.lastName}
 - Phone: ${userData.phone || 'N/A'}
@@ -131,7 +137,7 @@ Analyze the page and provide step-by-step account creation instructions. Return 
   { "action": "fill", "selector": "input[name='email']", "value": "${userData.email}", "description": "Fill email" },
   { "action": "fill", "selector": "input[name='firstName']", "value": "${userData.firstName}", "description": "Fill first name" },
   { "action": "fill", "selector": "input[name='lastName']", "value": "${userData.lastName}", "description": "Fill last name" },
-  { "action": "fill", "selector": "input[type='password']", "value": "${userData.password}", "description": "Fill password" },
+  { "action": "fill", "selector": "input[type='password']", "value": "\${password}", "description": "Fill password" },
   { "action": "click", "selector": "button[type='submit']", "description": "Submit registration" }
 ]
 
@@ -156,7 +162,13 @@ Return ONLY valid JSON array, no markdown formatting.`;
                 temperature
             });
 
-            const parsedActions = JSON.parse(actions);
+            let parsedActions;
+            try {
+                parsedActions = JSON.parse(actions);
+            } catch (err) {
+                throw new Error(`LLM returned invalid JSON for createAccount actions: ${err.message}`);
+            }
+            if (!Array.isArray(parsedActions)) throw new Error('LLM createAccount response must be a JSON array');
             for (const action of parsedActions) {
                 await executeAction(page, action, userData, actionTimeout);
             }
@@ -235,7 +247,13 @@ Return ONLY valid JSON array.`;
                 temperature
             });
 
-            const parsedActions = JSON.parse(actions);
+            let parsedActions;
+            try {
+                parsedActions = JSON.parse(actions);
+            } catch (err) {
+                throw new Error(`LLM returned invalid JSON for fillApplication actions: ${err.message}`);
+            }
+            if (!Array.isArray(parsedActions)) throw new Error('LLM fillApplication response must be a JSON array');
             for (const action of parsedActions) {
                 await executeAction(page, action, applicationData, actionTimeout);
             }
@@ -331,14 +349,19 @@ async function callLLM({ provider, endpoint, apiKey, model, messages, maxTokens,
         };
     }
 
-    const response = await fetch(endpoint, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(requestBody)
-    });
+    let response;
+    try {
+        response = await fetch(endpoint, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(requestBody)
+        });
+    } catch (err) {
+        throw new Error(`LLM request failed (network error): ${err.message}`);
+    }
 
     if (!response.ok) {
-        throw new Error(`LLM API error: ${response.statusText}`);
+        throw new Error(`LLM API error: ${response.status} ${response.statusText}`);
     }
 
     const data = await response.json();

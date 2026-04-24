@@ -3,6 +3,11 @@
 .db_credentials
 *.log
 
+# Gmail OAuth credentials (bootstrapped out-of-band by server/gmail_auth_init.py)
+deploy/docker/gmail/
+server/gmail_credentials.json
+server/gmail_token.json
+
 # Node
 node_modules/
 .next/

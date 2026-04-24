@@ -1,14 +1,14 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
     generateDraftMessage,
     generateBatchMessages,
-    buildProviderHeaders,
-    buildProviderRequest,
+    buildLLMHeaders,
+    buildLLMRequest,
     extractMessage,
     classifyContactRole,
     buildPrompt,
 } from './llm';
-import type { UserConfig, LLMProvider } from './types';
+import type { UserConfig } from './types';
 import { makeContact } from './test-fixtures';
 
 // Mock dependencies
@@ -30,7 +30,6 @@ describe('LLM Integration', () => {
     const mockConfig: UserConfig = {
         llm_endpoint: 'https://api.test.com/v1/chat',
         llm_api_key: 'test-api-key',
-        llm_provider: 'openai',
         llm_model: 'gpt-4',
         crm_message_tone: 'professional',
     };
@@ -51,37 +50,16 @@ describe('LLM Integration', () => {
         vi.mocked(getUserConfig).mockResolvedValue(mockConfig);
     });
 
-    describe('buildProviderHeaders', () => {
-        it('builds OpenAI headers correctly', () => {
-            const headers = buildProviderHeaders('openai', 'sk-test-key');
-
-            expect(headers).toEqual({
+    describe('buildLLMHeaders', () => {
+        it('builds OpenAI-compatible headers', () => {
+            expect(buildLLMHeaders('sk-test-key')).toEqual({
                 'Content-Type': 'application/json',
                 Authorization: 'Bearer sk-test-key',
             });
         });
-
-        it('builds Gemini headers correctly', () => {
-            const headers = buildProviderHeaders('gemini', 'gemini-key');
-
-            expect(headers).toEqual({
-                'Content-Type': 'application/json',
-                Authorization: 'Bearer gemini-key',
-            });
-        });
-
-        it('builds Anthropic headers correctly', () => {
-            const headers = buildProviderHeaders('anthropic', 'anthropic-key');
-
-            expect(headers).toEqual({
-                'Content-Type': 'application/json',
-                'x-api-key': 'anthropic-key',
-                'anthropic-version': '2023-06-01',
-            });
-        });
     });
 
-    describe('buildProviderRequest', () => {
+    describe('buildLLMRequest', () => {
         const llmRequest = {
             systemPrompt: 'You are a helpful assistant',
             userPrompt: 'Write a message',
@@ -89,10 +67,8 @@ describe('LLM Integration', () => {
             temperature: 0.7,
         };
 
-        it('builds OpenAI-compatible request', () => {
-            const request = buildProviderRequest('openai', llmRequest, mockConfig);
-
-            expect(request).toEqual({
+        it('builds OpenAI-compatible chat-completions body', () => {
+            expect(buildLLMRequest(llmRequest, mockConfig)).toEqual({
                 model: 'gpt-4',
                 messages: [
                     { role: 'system', content: 'You are a helpful assistant' },
@@ -103,100 +79,31 @@ describe('LLM Integration', () => {
             });
         });
 
-        it('builds Gemini request (OpenAI-compatible)', () => {
-            const geminiConfig = { ...mockConfig, llm_provider: 'gemini', llm_model: 'gemini-1.5-flash' };
-            const request = buildProviderRequest('gemini', llmRequest, geminiConfig);
-
-            expect(request).toEqual({
-                model: 'gemini-1.5-flash',
-                messages: [
-                    { role: 'system', content: 'You are a helpful assistant' },
-                    { role: 'user', content: 'Write a message' },
-                ],
-                max_tokens: 300,
-                temperature: 0.7,
-            });
-        });
-
-        it('builds Anthropic request', () => {
-            const request = buildProviderRequest('anthropic', llmRequest, mockConfig);
-
-            expect(request).toEqual({
-                model: 'gpt-4',
-                system: 'You are a helpful assistant',
-                messages: [{ role: 'user', content: 'Write a message' }],
-                max_tokens: 300,
-                temperature: 0.7,
-            });
-        });
-
-        it('throws error for unsupported provider', () => {
-            expect(() => {
-                buildProviderRequest('invalid' as LLMProvider, llmRequest, mockConfig);
-            }).toThrow('Unsupported LLM provider: invalid');
+        it('defaults to gemini-1.5-flash when llm_model is unset', () => {
+            const { llm_model: _unused, ...configWithoutModel } = mockConfig;
+            void _unused;
+            const request = buildLLMRequest(llmRequest, configWithoutModel) as { model: string };
+            expect(request.model).toBe('gemini-1.5-flash');
         });
     });
 
     describe('extractMessage', () => {
-        it('extracts message from OpenAI response', () => {
-            const response = {
-                choices: [
-                    {
-                        message: {
-                            role: 'assistant',
-                            content: 'Hello from OpenAI',
-                        },
-                    },
-                ],
-            };
-
-            const message = extractMessage(response, 'openai');
-            expect(message).toBe('Hello from OpenAI');
+        it('extracts content from OpenAI chat-completions shape', () => {
+            const response = { choices: [{ message: { role: 'assistant', content: 'Hello' } }] };
+            expect(extractMessage(response)).toBe('Hello');
         });
 
-        it('extracts message from Gemini native response', () => {
-            const response = {
-                candidates: [
-                    {
-                        content: {
-                            parts: [
-                                {
-                                    text: 'Hello from Gemini',
-                                },
-                            ],
-                        },
-                    },
-                ],
-            };
-
-            const message = extractMessage(response, 'gemini');
-            expect(message).toBe('Hello from Gemini');
+        it('falls back to Gemini native candidates[0].content.parts[0].text', () => {
+            const response = { candidates: [{ content: { parts: [{ text: 'Hello from Gemini' }] } }] };
+            expect(extractMessage(response)).toBe('Hello from Gemini');
         });
 
-        it('extracts message from Anthropic response', () => {
-            const response = {
-                content: [
-                    {
-                        type: 'text',
-                        text: 'Hello from Claude',
-                    },
-                ],
-            };
-
-            const message = extractMessage(response, 'anthropic');
-            expect(message).toBe('Hello from Claude');
+        it('throws on unrecognized shape', () => {
+            expect(() => extractMessage({ invalid: 'data' })).toThrow('Unexpected LLM response format');
         });
 
-        it('throws error for invalid response format', () => {
-            expect(() => {
-                extractMessage({ invalid: 'data' }, 'openai');
-            }).toThrow('Unexpected openai response format');
-        });
-
-        it('throws error for non-object response', () => {
-            expect(() => {
-                extractMessage('not an object', 'openai');
-            }).toThrow('Invalid openai response: not an object');
+        it('throws on non-object response', () => {
+            expect(() => extractMessage('not an object')).toThrow('Invalid LLM response: not an object');
         });
     });
 

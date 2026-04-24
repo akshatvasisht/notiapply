@@ -2,7 +2,7 @@
 
 import { logger } from './logger';
 import { getUserConfig } from './db';
-import { buildProviderHeaders, buildProviderRequest, extractMessage } from './llm';
+import { buildLLMHeaders, buildLLMRequest, extractMessage } from './llm';
 
 export interface DraftScore {
     overall: number; // 0-100
@@ -43,14 +43,10 @@ export async function scoreDraft(request: ScoringRequest): Promise<DraftScore> {
             throw new Error('LLM endpoint not configured');
         }
 
-        const provider = config.llm_provider ?? 'gemini';
-
         // Build scoring prompt
         const userPrompt = buildScoringPrompt(draft, contactName, companyName, contactRole);
 
-        // Build provider-specific request using existing helpers
-        const requestBody = buildProviderRequest(
-            provider,
+        const requestBody = buildLLMRequest(
             {
                 systemPrompt: 'You are a professional outreach quality evaluator. Analyze messages for specificity and effectiveness.',
                 userPrompt,
@@ -62,7 +58,7 @@ export async function scoreDraft(request: ScoringRequest): Promise<DraftScore> {
 
         const response = await fetch(config.llm_endpoint, {
             method: 'POST',
-            headers: buildProviderHeaders(provider, config.llm_api_key),
+            headers: buildLLMHeaders(config.llm_api_key),
             body: JSON.stringify(requestBody),
         });
 
@@ -71,7 +67,7 @@ export async function scoreDraft(request: ScoringRequest): Promise<DraftScore> {
         }
 
         const data = await response.json();
-        const evaluation = extractMessage(data, provider);
+        const evaluation = extractMessage(data);
 
         return parseEvaluation(evaluation, lengthScore, wordCount);
     } catch (error) {

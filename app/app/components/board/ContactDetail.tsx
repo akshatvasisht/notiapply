@@ -14,7 +14,7 @@ import DetailHeader from '../common/DetailHeader';
 import ExpandableNotes from '../common/ExpandableNotes';
 import OutcomeTracker from '../common/OutcomeTracker';
 import type { Job } from '@/lib/types';
-import { updateContactResponse, addContactInteraction, updateContactNotes } from '@/lib/db';
+import { updateContactResponse, addContactInteraction, updateContactNotes, requestContactReenrichment } from '@/lib/db';
 import EnrichContactModal from './EnrichContactModal';
 import CoachingNudge from './CoachingNudge';
 import DraftMessagePanel from './DraftMessagePanel';
@@ -31,6 +31,7 @@ interface Props {
 export default function ContactDetail({ contact, jobs, onClose, onStateChange: _onStateChange, onContactUpdated }: Props) {
     const [localNotes, setLocalNotes] = useState(contact.notes ?? '');
     const [showEnrichModal, setShowEnrichModal] = useState(false);
+    const [nowAtMount] = useState(() => Date.now());
     const borderColor = getContactBorderColor(contact.state);
     const stateColors = CONTACT_STATE_COLORS[contact.state];
     const stateLabel = CONTACT_STATE_LABELS[contact.state];
@@ -43,7 +44,7 @@ export default function ContactDetail({ contact, jobs, onClose, onStateChange: _
     const linkedJob = contact.job_id ? jobs.find(j => j.id === contact.job_id) : null;
 
     // Outreach coaching logic: time-based nudge (only for actionable states)
-    const daysSinceCreated = Math.floor((Date.now() - new Date(contact.created_at).getTime()) / (1000 * 60 * 60 * 24));
+    const daysSinceCreated = Math.floor((nowAtMount - new Date(contact.created_at).getTime()) / (1000 * 60 * 60 * 24));
     let coachingNudge: string | null = null;
     if (contact.state === 'contacted' && daysSinceCreated >= 3) {
         coachingNudge = "3+ days since outreach — consider a follow-up if you haven't heard back.";
@@ -174,7 +175,84 @@ export default function ContactDetail({ contact, jobs, onClose, onStateChange: _
                                 <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-tertiary)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                                     Recent LinkedIn Activity
                                 </div>
-                                <em>"{contact.linkedin_posts_summary}"</em>
+                                <em>&ldquo;{contact.linkedin_posts_summary}&rdquo;</em>
+                            </div>
+                        )}
+
+                        {/* 3b. Enrichment (from enrich-contacts pipeline).
+                           Show panel when we have enrichment data, regardless of whether
+                           a refresh is pending — after the user clicks Refresh we flip
+                           status to 'pending' but don't want the whole panel (with its
+                           stale-but-still-useful summary and the Refresh button) to
+                           disappear until the pipeline completes. */}
+                        {contact.enrichment && (contact.enrichment_status === 'completed' || contact.enrichment_status === 'pending') && (
+                            <div style={{
+                                padding: '12px 14px', borderRadius: 10,
+                                background: 'var(--color-surface-raised)',
+                                border: '1px solid var(--color-border)',
+                                fontSize: 12, color: 'var(--color-text-secondary)',
+                                lineHeight: 1.5,
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                        Enrichment
+                                        {contact.enrichment_status === 'pending' && (
+                                            <span style={{ fontWeight: 400, marginLeft: 8, textTransform: 'none', letterSpacing: 0, color: 'var(--color-text-tertiary)' }}>
+                                                · refreshing…
+                                            </span>
+                                        )}
+                                        {contact.enrichment_status === 'completed' && contact.enriched_at && (
+                                            <span style={{ fontWeight: 400, marginLeft: 8, textTransform: 'none', letterSpacing: 0 }}>
+                                                · {timeAgo(contact.enriched_at)}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <button
+                                        disabled={contact.enrichment_status === 'pending'}
+                                        onClick={async () => {
+                                            try {
+                                                await requestContactReenrichment(contact.id);
+                                                onContactUpdated({ ...contact, enrichment_status: 'pending' });
+                                                toast.success('Queued for re-enrichment');
+                                            } catch (err) {
+                                                toast.error(`Failed: ${err instanceof Error ? err.message : String(err)}`);
+                                            }
+                                        }}
+                                        title="Mark this contact for re-enrichment on the next pipeline run"
+                                        style={{
+                                            fontSize: 11,
+                                            padding: '3px 10px',
+                                            background: 'transparent',
+                                            color: contact.enrichment_status === 'pending' ? 'var(--color-text-tertiary)' : 'var(--color-primary)',
+                                            border: `1px solid ${contact.enrichment_status === 'pending' ? 'var(--color-border)' : 'var(--color-primary)'}`,
+                                            borderRadius: 999,
+                                            cursor: contact.enrichment_status === 'pending' ? 'not-allowed' : 'pointer',
+                                        }}
+                                    >
+                                        Refresh
+                                    </button>
+                                </div>
+                                {typeof contact.enrichment.summary === 'string' && contact.enrichment.summary.length > 0 && (
+                                    <div style={{ marginBottom: 8 }}>{contact.enrichment.summary}</div>
+                                )}
+                                {Array.isArray(contact.enrichment.topics) && contact.enrichment.topics.length > 0 && (
+                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+                                        {contact.enrichment.topics.map((t, idx) => (
+                                            <span key={`topic-${idx}`} style={{ padding: '2px 8px', borderRadius: 999, background: 'var(--color-primary-container)', color: 'var(--color-primary)', fontSize: 11 }}>
+                                                {t}
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
+                                {Array.isArray(contact.enrichment.tech_stack) && contact.enrichment.tech_stack.length > 0 && (
+                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                        {contact.enrichment.tech_stack.map((t, idx) => (
+                                            <span key={`tech-${idx}`} style={{ padding: '2px 8px', borderRadius: 999, background: 'var(--color-surface-container)', color: 'var(--color-text-secondary)', fontSize: 11, border: '1px solid var(--color-border)' }}>
+                                                {t}
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         )}
 

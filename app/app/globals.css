@@ -133,6 +133,42 @@
     overflow: hidden;
   }
 
+  /* Accessibility: visually-hidden text for screen reader landmarks. */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  /* Keyboard focus ring for form fields inside the wizard (+ any opt-in form). */
+  .wizard-input:focus-visible,
+  .wizard-button:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    border-color: var(--color-primary);
+  }
+
+  /* Wizard card — default padding is set inline on the element (see
+     SetupWizard.tsx). This rule overrides it on narrow viewports so chips
+     and long copy don't collide with the card border. `!important` is
+     required to beat the inline style. */
+  @media (max-width: 600px) {
+    .wizard-card {
+      padding: 16px !important;
+    }
+  }
+
+  /* InfoPopover visibility is controlled by React state — no CSS rules needed
+     (Tailwind v4's `@layer base` was stripping the display: none fallback,
+     leaving both panels permanently visible). */
+
   /* Typography Scale (Google Sans) */
   .text-display {
     font-size: 57px;
@@ -651,44 +687,14 @@
     outline-offset: 2px;
   }
 
-  /* ContactReminders popup & dismiss */
-  @keyframes reminderSlideIn {
-    from { transform: translateY(-12px); opacity: 0; }
-    to { transform: translateY(0); opacity: 1; }
-  }
-  @keyframes gentlePulse {
-    0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-warning) 40%, transparent); }
-    50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-warning) 0%, transparent); }
-  }
-  .reminder-popup {
-    transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-  .reminder-popup:hover {
-    transform: translateY(-1px);
-    box-shadow: var(--elevation-3) !important;
-  }
-  .reminder-dismiss-btn {
-    transition: background 0.2s, color 0.2s;
-  }
-  .reminder-dismiss-btn:hover {
-    background: color-mix(in srgb, var(--color-dismiss) 15%, transparent) !important;
-    color: var(--color-dismiss) !important;
-  }
-  .reminder-dismiss-btn:focus-visible {
-    outline: 2px solid var(--color-primary);
-    outline-offset: 2px;
-  }
-
   @media (prefers-reduced-motion: reduce) {
     .outcome-btn-yes, .outcome-btn-no,
     .cd-enrich-btn, .enrich-save-btn,
-    .jobs-agent-btn,
-    .reminder-popup, .reminder-dismiss-btn { transition: none; }
+    .jobs-agent-btn { transition: none; }
     .outcome-btn-yes:hover, .outcome-btn-yes:active { transform: none; }
     .outcome-btn-no:active { transform: none; }
     .enrich-save-btn:not(:disabled):hover { transform: none; }
     .enrich-save-btn:not(:disabled):active { transform: none; }
-    .reminder-popup:hover { transform: none; }
     .slide-in-left { animation: none; }
   }
 

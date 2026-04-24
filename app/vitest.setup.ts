@@ -16,7 +16,6 @@ vi.mock('./lib/db', async () => {
     return {
         ...actual,
         getUserConfig: vi.fn().mockResolvedValue({
-            llm_provider: 'gemini',
             llm_endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/',
             llm_api_key: 'test-key',
             llm_model: 'gemini-1.5-flash',

@@ -16,15 +16,24 @@ export function useDbQuery<T>(
     options?: { ttlMs?: number; fallback?: T }
 ): UseDbQueryResult<T> {
     const dbAvailable = hasDatabase();
-    const [data, setData] = useState<T | null>(() => getCached<T>(key) ?? options?.fallback ?? null);
+    const fallback = options?.fallback;
+    const [data, setData] = useState<T | null>(() => getCached<T>(key) ?? fallback ?? null);
     const [loading, setLoading] = useState<boolean>(dbAvailable && !getCached(key));
     const [error, setError] = useState<Error | null>(null);
+    // Mirror fetcher + fallback into refs so `refresh` stays stable across renders
+    // even when callers pass a new fallback object or inline fetcher on every render.
     const fetcherRef = useRef(fetcher);
-    fetcherRef.current = fetcher;
+    const fallbackRef = useRef(fallback);
+    useEffect(() => {
+        fetcherRef.current = fetcher;
+    }, [fetcher]);
+    useEffect(() => {
+        fallbackRef.current = fallback;
+    }, [fallback]);
 
     const refresh = useCallback(() => {
         if (!dbAvailable) {
-            if (options?.fallback !== undefined) setData(options.fallback);
+            if (fallbackRef.current !== undefined) setData(fallbackRef.current);
             setLoading(false);
             return;
         }
@@ -39,25 +48,22 @@ export function useDbQuery<T>(
             })
             .catch(err => {
                 setError(err);
-                if (options?.fallback !== undefined) setData(options.fallback);
+                if (fallbackRef.current !== undefined) setData(fallbackRef.current);
             })
             .finally(() => setLoading(false));
-    }, [key, options?.fallback, dbAvailable]);
+    }, [key, dbAvailable]);
 
     useEffect(() => {
-        if (!dbAvailable) {
-            if (options?.fallback !== undefined) setData(options.fallback);
-            setLoading(false);
-            return;
-        }
+        if (!dbAvailable) return;
         const cached = getCached<T>(key);
         if (cached) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing React state from the external cache store when key changes
             setData(cached);
             setLoading(false);
             return;
         }
         refresh();
-    }, [key, refresh, dbAvailable, options?.fallback]);
+    }, [key, refresh, dbAvailable]);
 
     return { data, loading, error, refresh };
 }

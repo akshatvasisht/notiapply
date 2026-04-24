@@ -14,7 +14,9 @@ vi.mock('@/lib/db', () => ({
     getJobById: vi.fn(),
     updateJobCallback: vi.fn().mockResolvedValue(undefined),
     updateApplicationDraftAnswers: vi.fn().mockResolvedValue(undefined),
+    updateApplicationNotes: vi.fn().mockResolvedValue(undefined),
     getUserConfig: vi.fn().mockResolvedValue({}),
+    retryDocs: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('marked', () => ({
@@ -37,6 +39,7 @@ import {
     updateJobCallback,
     updateApplicationDraftAnswers,
     getJobById,
+    retryDocs,
 } from '@/lib/db';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -83,6 +86,58 @@ describe('FocusMode — StateActions buttons', () => {
         });
         expect(screen.getByText('Re-queue')).toBeInTheDocument();
         expect(screen.getByText('Archive')).toBeInTheDocument();
+    });
+});
+
+// ─── Retry docs button (C-02) ─────────────────────────────────────────────────
+
+describe('FocusMode — Retry docs button (docs-failed state)', () => {
+    beforeEach(() => {
+        vi.mocked(getApplicationByJobId).mockResolvedValue(null);
+        vi.mocked(retryDocs).mockClear();
+    });
+
+    it('does NOT render the Retry docs button when state is not "docs-failed"', async () => {
+        const job = makeJob({ state: 'queued' });
+        await act(async () => {
+            render(<FocusMode job={job} onBack={noop} />);
+        });
+        expect(screen.queryByRole('button', { name: /Retry docs/i })).not.toBeInTheDocument();
+    });
+
+    it('renders the banner + Retry docs button when state="docs-failed"', async () => {
+        const job = makeJob({ state: 'docs-failed', docs_fail_reason: 'apply_diff: no match' });
+        await act(async () => {
+            render(<FocusMode job={job} onBack={noop} />);
+        });
+        expect(screen.getByText('Doc generation failed')).toBeInTheDocument();
+        expect(screen.getByText('apply_diff: no match')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Retry docs/i })).toBeInTheDocument();
+    });
+
+    it('still renders the banner + button when docs_fail_reason is null', async () => {
+        const job = makeJob({ state: 'docs-failed', docs_fail_reason: null });
+        await act(async () => {
+            render(<FocusMode job={job} onBack={noop} />);
+        });
+        expect(screen.getByText('Doc generation failed')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Retry docs/i })).toBeInTheDocument();
+    });
+
+    it('calls retryDocs(id) and clears the banner on click', async () => {
+        const job = makeJob({ id: 99, state: 'docs-failed', docs_fail_reason: 'boom' });
+        await act(async () => {
+            render(<FocusMode job={job} onBack={noop} />);
+        });
+        const retryBtn = screen.getByRole('button', { name: /Retry docs/i });
+        await act(async () => {
+            fireEvent.click(retryBtn);
+        });
+        expect(vi.mocked(retryDocs)).toHaveBeenCalledWith(99);
+        // After the optimistic patch, the banner should disappear.
+        await waitFor(() => {
+            expect(screen.queryByText('Doc generation failed')).not.toBeInTheDocument();
+        });
     });
 });
 

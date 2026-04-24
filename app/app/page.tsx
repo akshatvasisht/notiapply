@@ -23,8 +23,10 @@ const SettingsPage = dynamic(() => import('@/app/components/settings/SettingsPag
 });
 
 export default function Home() {
-  const [config, setConfig] = useState<UserConfig | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [config, setConfig] = useState<UserConfig | null>(() =>
+    hasDatabase() ? null : ({ setup_complete: false } as UserConfig)
+  );
+  const [loading, setLoading] = useState(() => hasDatabase());
   const [showWelcome, setShowWelcome] = useState(true);
   const [activeView, setActiveView] = useState<'jobs' | 'contacts'>('jobs');
   const [view, setView] = useState<'board' | 'settings'>('board');
@@ -35,17 +37,13 @@ export default function Home() {
   const [actionsContent, setActionsContent] = useState<React.ReactNode>(null);
 
   useEffect(() => {
-    if (!hasDatabase()) {
-      setConfig({ setup_complete: false });
-      setLoading(false);
-      return;
-    }
+    if (!hasDatabase()) return;
     const timeout = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error('config timeout')), 6000)
     );
     Promise.race([getUserConfig(), timeout])
       .then(setConfig)
-      .catch(() => setConfig({ setup_complete: false }))
+      .catch(() => setConfig({ setup_complete: false } as UserConfig))
       .finally(() => setLoading(false));
   }, []);
 

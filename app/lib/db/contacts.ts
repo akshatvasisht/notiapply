@@ -60,6 +60,19 @@ export async function updateContactNotes(id: number, notes: string): Promise<voi
     );
 }
 
+/**
+ * Queue a contact for re-enrichment by flipping its status back to 'pending'.
+ * The next `enrich-contacts` pipeline run will pick it up even if it was
+ * previously `completed`. Used by the "Refresh enrichment" action in
+ * ContactDetail.tsx (C-01).
+ */
+export async function requestContactReenrichment(id: number): Promise<void> {
+    await getPool().query(
+        "UPDATE contacts SET enrichment_status = 'pending' WHERE id = $1",
+        [id]
+    );
+}
+
 export async function updateContactCompanyData(
     id: number,
     data: {

@@ -98,14 +98,50 @@ class TestRedirectLooksDead:
         )
         assert result is True
 
-    def test_completely_unrelated_redirect_returns_true(self):
-        """Redirect to a totally different path with no matching components → dead."""
+    def test_unrelated_non_generic_redirect_returns_false(self):
+        """Redirect to a non-generic path (e.g. /signin) → alive.
+
+        Conservative by design: many sites bounce unauthenticated visitors to a
+        login gate, then load the job page. Archiving on /signin produced too
+        many false positives, so we now only mark dead on *exact* generic paths.
+        """
         result = _redirect_looks_dead(
             'https://jobs.example.com/posting/software-engineer-123456',
             'https://example.com/signin?next=%2F',
             'SomeCo',
         )
+        assert result is False
+
+    def test_redirect_to_positions_page_returns_true(self):
+        """Redirect to '/positions' → dead (exact generic path)."""
+        result = _redirect_looks_dead(
+            'https://example.com/job/abc',
+            'https://example.com/positions',
+            'SomeCo',
+        )
         assert result is True
+
+    def test_redirect_to_job_search_page_returns_true(self):
+        """Redirect to '/job-search' → dead (exact generic path)."""
+        result = _redirect_looks_dead(
+            'https://example.com/job/abc',
+            'https://example.com/job-search',
+            'SomeCo',
+        )
+        assert result is True
+
+    def test_redirect_to_specific_job_in_same_company_returns_false(self):
+        """Same-host redirect from old job ID path to new job ID path → alive.
+
+        This exercises the default-alive behavior: anything that isn't an exact
+        generic listing page is treated as live, regardless of path similarity.
+        """
+        result = _redirect_looks_dead(
+            'https://acmecorp.com/jobs/old-12345',
+            'https://acmecorp.com/jobs/new-67890',
+            'Acme Corp',
+        )
+        assert result is False
 
 
 # ---------------------------------------------------------------------------
@@ -255,7 +291,8 @@ class TestMain:
 
         # Find the UPDATE call (second execute call — first is the SELECT)
         execute_calls = mock_cursor.execute.call_args_list
-        update_calls = [c for c in execute_calls if 'UPDATE' in c[0][0]]
+        # Narrow to UPDATE jobs only — main() also UPDATE's scraper_runs on completion.
+        update_calls = [c for c in execute_calls if 'UPDATE jobs' in c[0][0]]
         assert len(update_calls) == 1
         update_sql = update_calls[0][0][0]
         assert 'is_live = false' in update_sql
@@ -274,7 +311,8 @@ class TestMain:
             main()
 
         execute_calls = mock_cursor.execute.call_args_list
-        update_calls = [c for c in execute_calls if 'UPDATE' in c[0][0]]
+        # Narrow to UPDATE jobs only — main() also UPDATE's scraper_runs on completion.
+        update_calls = [c for c in execute_calls if 'UPDATE jobs' in c[0][0]]
         assert len(update_calls) == 1
         update_sql = update_calls[0][0][0]
         assert 'liveness_checked_at' in update_sql
@@ -295,14 +333,19 @@ class TestMain:
             main()
 
         execute_calls = mock_cursor.execute.call_args_list
-        update_calls = [c for c in execute_calls if 'UPDATE' in c[0][0]]
+        # Narrow to UPDATE jobs only — main() also UPDATE's scraper_runs on completion.
+        update_calls = [c for c in execute_calls if 'UPDATE jobs' in c[0][0]]
         assert len(update_calls) == 0
 
     @patch('scraper.liveness_check.time.sleep')
     @patch('scraper.liveness_check.check_url')
     @patch('psycopg2.connect')
     def test_sleep_called_between_jobs(self, mock_connect, mock_check_url, mock_sleep):
-        """time.sleep(0.5) must be called once per job."""
+        """time.sleep(check_delay) must be called once per job.
+
+        Passes `check_delay: 0.5` in the payload so we also exercise config
+        pass-through (main() defaults to 1.0 otherwise).
+        """
         rows = [
             (1, 'https://example.com/job/1', 'Acme'),
             (2, 'https://example.com/job/2', 'Acme'),
@@ -310,7 +353,7 @@ class TestMain:
         mock_conn, mock_cursor = self._make_db_mocks(mock_connect, rows)
         mock_check_url.return_value = (False, '200 OK')
 
-        with patch('sys.argv', ['liveness_check.py', '{"db_url": "postgresql://test"}']):
+        with patch('sys.argv', ['liveness_check.py', '{"db_url": "postgresql://test", "check_delay": 0.5}']):
             main()
 
         assert mock_sleep.call_count == 2

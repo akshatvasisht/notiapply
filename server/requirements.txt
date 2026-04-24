@@ -26,6 +26,7 @@ pytest-asyncio==0.24.0
 
 # Secret Management
 keyring==25.5.0
+cryptography==46.0.7  # AES-256-GCM for crypto_helper.py. Pinned at 46.0.7 to cover CVE-2026-34073 (cert validation bypass, fixed 46.0.6) and CVE-2026-39892 (non-contiguous buffer overflow, fixed 46.0.7).
 
 # Analytics (Optional - for skill extraction from free text)
 # keybert==0.8.5

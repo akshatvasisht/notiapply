@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { startFillSession, triggerPipelineRun } from '@/lib/tauri';
+import { sendPipelineNotification } from '@/lib/notifications';
 import { logger } from '@/lib/logger';
 import { useJobs, useDashboardMetrics, useUserConfig, useCardSelection, useBoardKeyboard } from '@/lib/hooks';
 import { MOCK_JOBS } from '@/lib/mock-data';
@@ -118,6 +119,13 @@ export default function Board({
                         setSessionResult(event);
                         setSessionRunning(false);
                         refresh();
+                        const total = event.filled + event.incomplete + event.failed;
+                        sendPipelineNotification(
+                            'Fill session complete',
+                            total === 0
+                                ? 'No jobs processed.'
+                                : `Filled ${event.filled}/${total}. ${event.incomplete} need review. Open Notiapply.`,
+                        );
                     } else {
                         refresh();
                     }
@@ -234,7 +242,7 @@ export default function Board({
                 <line x1="12" y1="17" x2="12.01" y2="17" />
             </svg>
             <span style={{ fontSize: 13, color: 'var(--color-warning)', fontWeight: 500 }}>
-                Preview Mode: Using mock data (database not connected)
+                Preview — representative data only (database not connected)
             </span>
         </div>
     ) : null;

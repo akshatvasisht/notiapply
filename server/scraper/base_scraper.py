@@ -6,15 +6,30 @@ from psycopg2 import extras as psycopg2_extras
 import instructor
 from openai import OpenAI
 from typing import List, Dict, Any, Type, Optional
-from scrapling import Fetcher
 from pydantic import BaseModel
 from datetime import datetime
-from .job_relevance import should_auto_filter
 from .log_config import configure_logging
 import structlog
 import subprocess
 import time
 import random
+
+# Guarded imports for scrapling.Fetcher and JobRelevanceScorer: exposed at module
+# scope so test_base_scraper.py's @patch('scraper.base_scraper.Fetcher') works,
+# but wrapped in try/except so this module still loads in test environments
+# without playwright — scrapling transitively imports playwright._impl._errors,
+# which isn't installed in lightweight venvs. If the lib is missing, __init__
+# raises a clear RuntimeError rather than crashing at import time.
+try:
+    from scrapling import Fetcher
+except ImportError:
+    Fetcher = None  # type: ignore[assignment]
+
+try:
+    from .job_relevance import JobRelevanceScorer, should_auto_filter
+except ImportError:
+    JobRelevanceScorer = None  # type: ignore[assignment]
+    should_auto_filter = None  # type: ignore[assignment]
 
 configure_logging()
 
@@ -28,6 +43,8 @@ class BaseScraper(abc.ABC):
         self.scraper_key = scraper_key
         self.log = structlog.get_logger().bind(scraper_key=self.scraper_key)
         self.use_stealth = use_stealth
+        if Fetcher is None:
+            raise RuntimeError("scrapling is not installed; install server/requirements.txt")
         self.fetcher = Fetcher(stealth=self.use_stealth, auto_match=False if not use_stealth else True)
         self.run_id: Optional[int] = None
         self.errors: List[str] = []
@@ -47,7 +64,8 @@ class BaseScraper(abc.ABC):
 
         # Optional relevance filtering
         if enable_relevance_filter and api_key and user_criteria:
-            from .job_relevance import JobRelevanceScorer
+            if JobRelevanceScorer is None:
+                raise RuntimeError("job_relevance module unavailable")
             self.relevance_scorer = JobRelevanceScorer(
                 api_key=api_key,
                 base_url=base_url,
@@ -230,12 +248,13 @@ class BaseScraper(abc.ABC):
                     for contact in contacts:
                         h = self.contact_hash(contact["name"], contact["company_name"])
                         cur.execute("""
-                            INSERT INTO contacts (name, role, company_name, linkedin_url, email, contact_hash, job_id, department, source)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            INSERT INTO contacts (name, role, company_name, linkedin_url, personal_url, email, contact_hash, job_id, department, source)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             ON CONFLICT (contact_hash) DO NOTHING
                         """, (
                             contact["name"], contact.get("role"), contact["company_name"],
-                            contact.get("linkedin_url"), contact.get("email"), h,
+                            contact.get("linkedin_url"), contact.get("personal_url"),
+                            contact.get("email"), h,
                             contact.get("job_id"), contact.get("department"), contact.get("source")
                         ))
                         if cur.rowcount > 0:

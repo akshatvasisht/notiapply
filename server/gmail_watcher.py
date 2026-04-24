@@ -1,237 +1,237 @@
-"""Gmail API Reply Detection Service
+"""Gmail reply-watcher — runner-dispatched module.
 
-Monitors Gmail inbox for replies from contacts in the database.
-Auto-updates contacts.got_response and adds entries to interaction_log.
+Polls Gmail for replies from contacts in state='contacted' with got_response IS NULL.
+On a match, flips the contact to state='replied', got_response=true, and appends a
+message-id-keyed entry to interaction_log.
 
-Setup:
-1. Enable Gmail API in Google Cloud Console
-2. Download credentials.json to server/gmail_credentials.json
-3. Run once to authenticate: python gmail_watcher.py --auth
-4. Deploy as cron job or systemd service
+Wired into server/runner/app.py SCRIPT_MAP as "gmail-watch". The runner calls:
+    python gmail_watcher.py '<json_payload>'
 
-Usage:
-    python gmail_watcher.py --check  # Check for new replies (run every 5-15 min)
+Expected payload keys (all optional, all have defaults):
+    db_url          Postgres DSN (auto-injected by runner from DATABASE_URL env)
+    lookback_days   How many days back to scan Gmail (default: 14)
+    batch_size      Max contacts to query per run (default: 100)
+
+Emits a single trailing JSON line to stdout:
+    {"processed": N, "replied": M, "skipped_duplicates": K, "errors": [...]}
+
+Stderr is used for human-readable progress.
 """
 
+from __future__ import annotations
+
+import contextlib
 import json
 import os
 import sys
-import argparse
-from datetime import datetime, timedelta
-from typing import List, Dict, Optional
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional
+
 import psycopg2
 
-try:
-    from google.auth.transport.requests import Request
-    from google.oauth2.credentials import Credentials
-    from google_auth_oauthlib.flow import InstalledAppFlow
-    from googleapiclient.discovery import build
-except ImportError:
-    print("Error: Google API client not installed. Run: pip install google-auth-oauthlib google-api-python-client", file=sys.stderr)
-    sys.exit(1)
-
-# Gmail API scopes
-SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
-
-# Paths
-CREDENTIALS_PATH = os.path.join(os.path.dirname(__file__), 'gmail_credentials.json')
-TOKEN_PATH = os.path.join(os.path.dirname(__file__), 'gmail_token.json')
+from gmail_auth import get_gmail_service
 
 
-def get_gmail_service():
-    """Authenticate and return Gmail API service."""
-    creds = None
-
-    # Load existing token
-    if os.path.exists(TOKEN_PATH):
-        creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
-
-    # Refresh or re-authenticate
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            if not os.path.exists(CREDENTIALS_PATH):
-                raise FileNotFoundError(
-                    f"Gmail credentials not found at {CREDENTIALS_PATH}. "
-                    "Download from Google Cloud Console."
-                )
-            flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_PATH, SCOPES)
-            creds = flow.run_local_server(port=0)
-
-        # Save credentials
-        with open(TOKEN_PATH, 'w') as token:
-            token.write(creds.to_json())
-
-    return build('gmail', 'v1', credentials=creds)
+# ──────────────────────────────────────────────────────────────────────────────
+# DB helpers
+# ──────────────────────────────────────────────────────────────────────────────
 
 
-def get_contacts_awaiting_response(db_url: str) -> List[Dict]:
-    """Get all contacts in 'contacted' state with email addresses."""
-    with psycopg2.connect(db_url) as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT id, name, email, company_name, last_contacted_at
-                FROM contacts
-                WHERE state = 'contacted'
-                  AND got_response IS NULL
-                  AND email IS NOT NULL
-                  AND email != ''
-                ORDER BY last_contacted_at DESC NULLS LAST
-            """)
+def _fetch_awaiting_contacts(db_url: str, batch_size: int) -> List[Dict[str, Any]]:
+    # psycopg2's connect-as-ctx-manager commits/rolls back on exit but does NOT
+    # close the connection — wrap with contextlib.closing() so both the tx and
+    # the connection are cleaned up in one idiomatic block.
+    with contextlib.closing(psycopg2.connect(db_url)) as conn, conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, name, email, company_name, last_contacted_at, interaction_log
+              FROM contacts
+             WHERE state = 'contacted'
+               AND got_response IS NULL
+               AND email IS NOT NULL
+               AND email <> ''
+             ORDER BY last_contacted_at DESC NULLS LAST
+             LIMIT %s
+            """,
+            (batch_size,),
+        )
+        rows = cur.fetchall()
 
-            contacts = []
-            for row in cur.fetchall():
-                contacts.append({
-                    'id': row[0],
-                    'name': row[1],
-                    'email': row[2].lower(),  # Normalize
-                    'company_name': row[3],
-                    'last_contacted_at': row[4],
-                })
+    return [
+        {
+            "id": row[0],
+            "name": row[1],
+            "email": row[2].lower(),
+            "company_name": row[3],
+            "last_contacted_at": row[4],
+            "interaction_log": row[5] or [],
+        }
+        for row in rows
+    ]
 
-    return contacts
+
+def _already_logged(interaction_log: List[Dict[str, Any]], message_id: str) -> bool:
+    """True if any existing entry references this Gmail message_id."""
+    for entry in interaction_log:
+        if isinstance(entry, dict) and entry.get("message_id") == message_id:
+            return True
+    return False
 
 
-def check_for_replies(service, contacts: List[Dict], lookback_days: int = 14) -> List[Dict]:
-    """Check Gmail for replies from contacts.
+def _record_reply(db_url: str, contact_id: int, reply: Dict[str, Any]) -> None:
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "event": "Email reply received",
+        "notes": f"Subject: {reply['subject']} — {reply['snippet'][:140]}",
+        "message_id": reply["message_id"],
+    }
+    with contextlib.closing(psycopg2.connect(db_url)) as conn, conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE contacts
+               SET got_response = true,
+                   state = 'replied',
+                   interaction_log = COALESCE(interaction_log, '[]'::jsonb) || %s::jsonb
+             WHERE id = %s
+            """,
+            (json.dumps(entry), contact_id),
+        )
 
-    Returns list of {contact_id, email, subject, snippet, timestamp}
-    """
-    replies = []
 
-    # Build query: emails from any of the contact addresses
-    contact_emails = [c['email'] for c in contacts]
-    if not contact_emails:
+# ──────────────────────────────────────────────────────────────────────────────
+# Gmail helpers
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _extract_email(from_header: str) -> str:
+    if "<" in from_header and ">" in from_header:
+        return from_header.split("<", 1)[1].split(">", 1)[0].strip()
+    return from_header.strip()
+
+
+def _find_replies(service, contacts: List[Dict[str, Any]], lookback_days: int) -> List[Dict[str, Any]]:
+    """Return list of {contact_id, contact_name, email, subject, snippet, message_id}."""
+    if not contacts:
         return []
 
-    # Gmail query: from:(email1 OR email2 OR ...) newer_than:14d
-    after_date = (datetime.now() - timedelta(days=lookback_days)).strftime('%Y/%m/%d')
-    email_query = ' OR '.join(contact_emails)
-    query = f'from:({email_query}) after:{after_date}'
+    after = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).strftime("%Y/%m/%d")
+    email_filter = " OR ".join(c["email"] for c in contacts)
+    query = f"from:({email_filter}) after:{after}"
 
-    try:
-        results = service.users().messages().list(
-            userId='me',
-            q=query,
-            maxResults=500  # Adjust if needed
-        ).execute()
+    # Paginate so we don't silently drop replies past the 500-message first page.
+    # Gmail returns nextPageToken when there's more; loop until exhausted.
+    messages: List[Dict[str, Any]] = []
+    page_token: Optional[str] = None
+    while True:
+        kwargs: Dict[str, Any] = {"userId": "me", "q": query, "maxResults": 500}
+        if page_token:
+            kwargs["pageToken"] = page_token
+        results = service.users().messages().list(**kwargs).execute()
+        messages.extend(results.get("messages", []))
+        page_token = results.get("nextPageToken")
+        if not page_token:
+            break
 
-        messages = results.get('messages', [])
+    by_email = {c["email"]: c for c in contacts}
+    replies: List[Dict[str, Any]] = []
 
-        for msg in messages:
-            # Get message details
-            msg_data = service.users().messages().get(
-                userId='me',
-                id=msg['id'],
-                format='metadata',
-                metadataHeaders=['From', 'Subject', 'Date']
-            ).execute()
+    for msg in messages:
+        msg_id = msg["id"]
+        detail = (
+            service.users()
+            .messages()
+            .get(userId="me", id=msg_id, format="metadata", metadataHeaders=["From", "Subject", "Date"])
+            .execute()
+        )
+        headers = {h["name"]: h["value"] for h in detail.get("payload", {}).get("headers", [])}
+        from_email = _extract_email(headers.get("From", "")).lower()
+        contact = by_email.get(from_email)
+        if not contact:
+            continue
 
-            headers = {h['name']: h['value'] for h in msg_data.get('payload', {}).get('headers', [])}
-            from_email = extract_email(headers.get('From', ''))
-
-            # Match to contact
-            matching_contact = next((c for c in contacts if c['email'] == from_email.lower()), None)
-
-            if matching_contact:
-                replies.append({
-                    'contact_id': matching_contact['id'],
-                    'contact_name': matching_contact['name'],
-                    'email': from_email,
-                    'subject': headers.get('Subject', '(no subject)'),
-                    'snippet': msg_data.get('snippet', ''),
-                    'timestamp': headers.get('Date', ''),
-                    'message_id': msg['id'],
-                })
-
-    except Exception as e:
-        print(f"Error querying Gmail: {e}", file=sys.stderr)
+        replies.append(
+            {
+                "contact_id": contact["id"],
+                "contact_name": contact["name"],
+                "contact_interaction_log": contact["interaction_log"],
+                "email": from_email,
+                "subject": headers.get("Subject", "(no subject)"),
+                "snippet": detail.get("snippet", ""),
+                "message_id": msg_id,
+            }
+        )
 
     return replies
 
 
-def extract_email(from_field: str) -> str:
-    """Extract email from 'Name <email@example.com>' format."""
-    if '<' in from_field and '>' in from_field:
-        return from_field.split('<')[1].split('>')[0].strip()
-    return from_field.strip()
+# ──────────────────────────────────────────────────────────────────────────────
+# Runner entry point
+# ──────────────────────────────────────────────────────────────────────────────
 
 
-def update_contact_response(db_url: str, contact_id: int, reply: Dict):
-    """Mark contact as got_response=true and log interaction."""
-    with psycopg2.connect(db_url) as conn:
-        with conn.cursor() as cur:
-            interaction = {
-                'timestamp': datetime.now().isoformat(),
-                'event': 'Email reply received',
-                'notes': f"Subject: {reply['subject']} — {reply['snippet'][:100]}...",
-            }
+def run(payload: Dict[str, Any]) -> Dict[str, Any]:
+    db_url = payload.get("db_url") or os.environ.get("DATABASE_URL")
+    if not db_url:
+        return {"processed": 0, "replied": 0, "skipped_duplicates": 0, "errors": ["db_url missing"]}
 
-            cur.execute("""
-                UPDATE contacts
-                SET got_response = true,
-                    state = 'replied',
-                    interaction_log = interaction_log || %s::jsonb
-                WHERE id = %s
-            """, (json.dumps(interaction), contact_id))
+    lookback_days = int(payload.get("lookback_days", 14))
+    batch_size = int(payload.get("batch_size", 100))
+    errors: List[str] = []
 
-            conn.commit()
-
-    print(f"✓ Marked contact #{contact_id} ({reply['contact_name']}) as replied")
-
-
-def main():
-    parser = argparse.ArgumentParser(description='Gmail Reply Detection Service')
-    parser.add_argument('--auth', action='store_true', help='Run OAuth flow to authenticate')
-    parser.add_argument('--check', action='store_true', help='Check for new replies')
-    parser.add_argument('--db-url', help='PostgreSQL connection string (or set DATABASE_URL env var)')
-    parser.add_argument('--lookback-days', type=int, default=14, help='How many days back to check (default: 14)')
-
-    args = parser.parse_args()
-
-    # Get database URL
-    db_url = args.db_url or os.getenv('DATABASE_URL')
-    if not db_url and args.check:
-        print("Error: --db-url required or set DATABASE_URL environment variable", file=sys.stderr)
-        sys.exit(1)
-
-    # Authenticate
-    if args.auth:
-        print("Starting OAuth flow...")
+    try:
         service = get_gmail_service()
-        print("✓ Authentication successful! Token saved to", TOKEN_PATH)
-        return
+    except FileNotFoundError as exc:
+        return {"processed": 0, "replied": 0, "skipped_duplicates": 0, "errors": [str(exc)]}
+    except Exception as exc:  # noqa: BLE001
+        return {"processed": 0, "replied": 0, "skipped_duplicates": 0, "errors": [f"gmail auth failed: {exc}"]}
 
-    # Check for replies
-    if args.check:
-        print(f"Checking Gmail for replies (past {args.lookback_days} days)...")
+    contacts = _fetch_awaiting_contacts(db_url, batch_size)
+    print(f"gmail-watch: {len(contacts)} contacts awaiting reply", file=sys.stderr)
+    if not contacts:
+        return {"processed": 0, "replied": 0, "skipped_duplicates": 0, "errors": errors}
 
-        service = get_gmail_service()
-        contacts = get_contacts_awaiting_response(db_url)
+    try:
+        replies = _find_replies(service, contacts, lookback_days)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "processed": len(contacts),
+            "replied": 0,
+            "skipped_duplicates": 0,
+            "errors": [f"gmail query failed: {exc}"],
+        }
 
-        if not contacts:
-            print("No contacts awaiting response.")
-            return
+    replied = 0
+    duplicates = 0
+    for reply in replies:
+        if _already_logged(reply["contact_interaction_log"], reply["message_id"]):
+            duplicates += 1
+            continue
+        try:
+            _record_reply(db_url, reply["contact_id"], reply)
+            replied += 1
+            print(
+                f"gmail-watch: contact #{reply['contact_id']} ({reply['contact_name']}) → replied",
+                file=sys.stderr,
+            )
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"update contact {reply['contact_id']}: {exc}")
 
-        print(f"Found {len(contacts)} contacts awaiting response")
-
-        replies = check_for_replies(service, contacts, args.lookback_days)
-
-        if not replies:
-            print("No new replies found.")
-            return
-
-        print(f"\nFound {len(replies)} replies:")
-        for reply in replies:
-            update_contact_response(db_url, reply['contact_id'], reply)
-
-        print(f"\n✓ Updated {len(replies)} contacts")
-        return
-
-    # No args provided
-    parser.print_help()
+    return {
+        "processed": len(contacts),
+        "replied": replied,
+        "skipped_duplicates": duplicates,
+        "errors": errors,
+    }
 
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    raw = sys.argv[1] if len(sys.argv) > 1 else "{}"
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        # Surface the parse error so an operator can tell "malformed argv" from
+        # "valid payload, missing DB_URL". The run() return shape is preserved.
+        print(f"gmail-watch: JSON parse error for argv[1]: {exc}", file=sys.stderr)
+        payload = {}
+    result = run(payload)
+    print(json.dumps(result))

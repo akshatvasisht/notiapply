@@ -119,6 +119,40 @@ docker exec notiapply-postgres pg_dump -U notiapply notiapply \
   | gzip > notiapply-$(date +%F).sql.gz
 ```
 
+## Enabling Gmail reply detection (optional)
+
+The `gmail-watch` pipeline module polls Gmail for replies from contacts in
+state='contacted' and flips them to 'replied'. Authentication is
+bootstrapped out-of-band on the host — the runner container only ever
+reads the resulting token.
+
+1. Enable the Gmail API in Google Cloud Console and create OAuth 2.0
+   credentials of type **Desktop app**.
+2. Download the JSON and save it at
+   `deploy/docker/gmail/gmail_credentials.json` (create the dir if needed;
+   it's gitignored).
+3. From the repo root, run:
+   ```bash
+   python server/gmail_auth_init.py
+   ```
+   This opens your default browser, runs the OAuth flow, and writes
+   `deploy/docker/gmail/gmail_token.json` (chmod 600).
+4. Restart the runner so it picks up the mounted token:
+   ```bash
+   cd deploy/docker && docker compose restart runner
+   ```
+5. Hit the endpoint to confirm:
+   ```bash
+   curl -X POST http://127.0.0.1:8080/run/gmail-watch \
+     -H "X-Webhook-Secret: $NOTIAPPLY_WEBHOOK_SECRET" \
+     -H "Content-Type: application/json" \
+     -d '{"module_config": {"lookback_days": 14}}'
+   ```
+
+The `google-auth` library rewrites the token on refresh (~1h cadence); the
+volume mount is read-write for that reason. Token stays on the host —
+never commit `deploy/docker/gmail/`.
+
 ## n8n API key for MCP workflow authoring
 
 Once the owner account exists, go to **Settings → API** in the n8n UI and

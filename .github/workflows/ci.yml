@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-frontend:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: ./app
+        run: npm ci
+
+      - name: Run linter
+        working-directory: ./app
+        run: npm run lint
+
+      - name: Run unit tests
+        working-directory: ./app
+        run: npm test
+
+  test-python:
+    name: Python Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+          cache-dependency-path: server/requirements.txt
+
+      - name: Install Python dependencies
+        working-directory: ./server
+        run: pip install -r requirements.txt
+
+      - name: Run Python tests
+        working-directory: ./server
+        run: pytest tests/ -v
+
+  lint-python:
+    name: Python Linting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Check Python syntax
+        working-directory: ./server
+        run: python -m py_compile scraper/*.py apply_diff.py
+
+  check-migrations:
+    name: Validate Migrations
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: notiapply_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dbmate
+        run: |
+          curl -fsSL https://github.com/amacneil/dbmate/releases/latest/download/dbmate-linux-amd64 -o dbmate
+          chmod +x dbmate
+          sudo mv dbmate /usr/local/bin/
+
+      - name: Run migrations
+        env:
+          DATABASE_URL: postgres://test:test@localhost:5432/notiapply_test?sslmode=disable
+        run: dbmate up
+
+      - name: Check migrations can be rolled back
+        env:
+          DATABASE_URL: postgres://test:test@localhost:5432/notiapply_test?sslmode=disable
+        run: dbmate down && dbmate up

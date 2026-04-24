@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Logo from './Logo';
 
 export interface BoardHeaderProps {
@@ -37,6 +37,19 @@ export default function BoardHeader({
     actionsContent,
 }: BoardHeaderProps) {
     const searchRef = useRef<HTMLInputElement>(null);
+    const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [localSearch, setLocalSearch] = useState(searchQuery);
+
+    // Keep local state in sync when parent clears or sets search externally
+    useEffect(() => {
+        setLocalSearch(searchQuery);
+    }, [searchQuery]);
+
+    const handleSearchChange = (value: string) => {
+        setLocalSearch(value);
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        debounceRef.current = setTimeout(() => onSearchChange?.(value), 250);
+    };
 
     // Ctrl+F focuses the search field
     useEffect(() => {
@@ -52,6 +65,7 @@ export default function BoardHeader({
 
     return (
         <nav
+            className="board-header"
             style={{
                 display: 'grid',
                 gridTemplateColumns: 'minmax(200px, 1fr) auto minmax(200px, 1fr)',
@@ -90,9 +104,10 @@ export default function BoardHeader({
                             ref={searchRef}
                             type="text"
                             placeholder={searchPlaceholder}
-                            value={searchQuery}
-                            onChange={e => onSearchChange(e.target.value)}
+                            value={localSearch}
+                            onChange={e => handleSearchChange(e.target.value)}
                             aria-label={searchPlaceholder}
+                            className="board-search-input"
                             style={{
                                 width: '100%',
                                 height: 36,
@@ -106,19 +121,10 @@ export default function BoardHeader({
                                 outline: 'none',
                                 transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                             }}
-                            onFocus={e => {
-                                e.currentTarget.style.borderColor = 'var(--color-primary)';
-                                e.currentTarget.style.background = 'var(--color-surface-container)';
-                                e.currentTarget.style.boxShadow = '0 0 0 3px rgba(25, 103, 210, 0.08)';
-                            }}
-                            onBlur={e => {
-                                e.currentTarget.style.borderColor = 'var(--color-outline-variant)';
-                                e.currentTarget.style.background = 'var(--color-surface-container-low)';
-                                e.currentTarget.style.boxShadow = 'none';
-                            }}
                         />
                         {/* Magnifier icon */}
                         <svg
+                            aria-hidden="true"
                             width="16" height="16" viewBox="0 0 24 24"
                             fill="none" stroke="currentColor" strokeWidth="2.5"
                             strokeLinecap="round" strokeLinejoin="round"
@@ -138,7 +144,7 @@ export default function BoardHeader({
 
             {/* ── Center: Toggle (Jobs/CRM switcher) ────────────────── */}
             {toggleContent && (
-                <div style={{ display: 'flex', justifyContent: 'center' }}>
+                <div className="board-header-center" style={{ display: 'flex', justifyContent: 'center' }}>
                     {toggleContent}
                 </div>
             )}
@@ -151,7 +157,7 @@ export default function BoardHeader({
                 justifyContent: 'flex-end',
             }}>
                 {metricsContent && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div className="board-header-metrics" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         {metricsContent}
                     </div>
                 )}
@@ -161,6 +167,7 @@ export default function BoardHeader({
 
                     {onOpenSettings && (
                         <button
+                            className="settings-gear-btn"
                             onClick={onOpenSettings}
                             title="Settings"
                             aria-label="Open settings"
@@ -170,19 +177,10 @@ export default function BoardHeader({
                                 border: 'none', borderRadius: 18,
                                 background: 'none', cursor: 'pointer',
                                 color: 'var(--color-on-surface-variant)',
-                                transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                            }}
-                            onMouseEnter={e => {
-                                e.currentTarget.style.background = 'var(--color-surface-container-high)';
-                                e.currentTarget.style.transform = 'scale(1.05)';
-                            }}
-                            onMouseLeave={e => {
-                                e.currentTarget.style.background = 'none';
-                                e.currentTarget.style.transform = 'scale(1)';
                             }}
                         >
                             {/* Gear icon */}
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                 <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
                                 <circle cx="12" cy="12" r="3" />
                             </svg>

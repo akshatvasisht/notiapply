@@ -17,7 +17,6 @@ export default function ViewToggle({ value, onChange }: ViewToggleProps) {
 
     return (
         <div
-            onClick={() => onChange(value === 'jobs' ? 'contacts' : 'jobs')}
             style={{
                 position: 'relative',
                 display: 'flex',
@@ -27,11 +26,11 @@ export default function ViewToggle({ value, onChange }: ViewToggleProps) {
                 border: '1px solid var(--color-outline)',
                 padding: 2,
                 isolation: 'isolate',
-                cursor: 'pointer',
             }}
         >
             {/* Sliding background indicator */}
             <div
+                aria-hidden="true"
                 style={{
                     position: 'absolute',
                     top: 2,
@@ -43,13 +42,17 @@ export default function ViewToggle({ value, onChange }: ViewToggleProps) {
                     transition: 'left 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
                     zIndex: 0,
                     boxShadow: 'var(--elevation-1)',
+                    pointerEvents: 'none',
                 }}
             />
 
             {/* Jobs button */}
             <button
+                className="view-toggle-btn"
+                onClick={() => onChange('jobs')}
                 onMouseEnter={() => setHoveredSide('jobs')}
                 onMouseLeave={() => setHoveredSide(null)}
+                aria-pressed={value === 'jobs'}
                 style={{
                     position: 'relative',
                     zIndex: 1,
@@ -66,7 +69,7 @@ export default function ViewToggle({ value, onChange }: ViewToggleProps) {
                     letterSpacing: '0.01em',
                     whiteSpace: 'nowrap',
                     opacity: hoveredSide === 'contacts' && value !== 'jobs' ? 0.6 : 1,
-                    pointerEvents: 'none', // Allow click to pass to parent
+                    borderRadius: 16,
                 }}
             >
                 Jobs Pipeline
@@ -74,8 +77,11 @@ export default function ViewToggle({ value, onChange }: ViewToggleProps) {
 
             {/* Contacts button */}
             <button
+                className="view-toggle-btn"
+                onClick={() => onChange('contacts')}
                 onMouseEnter={() => setHoveredSide('contacts')}
                 onMouseLeave={() => setHoveredSide(null)}
+                aria-pressed={value === 'contacts'}
                 style={{
                     position: 'relative',
                     zIndex: 1,
@@ -92,7 +98,7 @@ export default function ViewToggle({ value, onChange }: ViewToggleProps) {
                     letterSpacing: '0.01em',
                     whiteSpace: 'nowrap',
                     opacity: hoveredSide === 'jobs' && value !== 'contacts' ? 0.6 : 1,
-                    pointerEvents: 'none', // Allow click to pass to parent
+                    borderRadius: 16,
                 }}
             >
                 Outreach CRM

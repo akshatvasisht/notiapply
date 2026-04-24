@@ -20,7 +20,7 @@ try:
         
     print("\n--- Module Configuration Keys ---")
     # Just list keys to avoid leaking secrets in logs if possible, but I need to see if Gemini/OpenAI are there
-    cur.execute("SELECT module_key, config FROM module_config;")
+    cur.execute("SELECT key, module_config FROM pipeline_modules WHERE module_config IS NOT NULL AND module_config != '{}';")
     configs = cur.fetchall()
     for c in configs:
         conf = c[1]

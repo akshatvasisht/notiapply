@@ -60,6 +60,7 @@ export default class ErrorBoundary extends Component<Props, State> {
                         }}
                     >
                         <svg
+                            aria-hidden="true"
                             width="48"
                             height="48"
                             viewBox="0 0 24 24"
@@ -129,12 +130,12 @@ export default class ErrorBoundary extends Component<Props, State> {
                             </details>
                         )}
                         <button
-                            onClick={() => window.location.reload()}
+                            onClick={() => this.setState({ hasError: false, error: null })}
                             style={{
                                 marginTop: '16px',
                                 padding: '10px 20px',
                                 background: 'var(--color-error)',
-                                color: 'white',
+                                color: 'var(--color-on-error)',
                                 border: 'none',
                                 borderRadius: '8px',
                                 fontSize: '14px',
@@ -142,7 +143,7 @@ export default class ErrorBoundary extends Component<Props, State> {
                                 cursor: 'pointer',
                             }}
                         >
-                            Reload Application
+                            Try Again
                         </button>
                     </div>
                 </div>

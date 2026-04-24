@@ -3,7 +3,7 @@ import { Geist } from "next/font/google";
 import ErrorBoundary from "./components/common/ErrorBoundary";
 import "./globals.css";
 
-const geist = Geist({ subsets: ["latin"] });
+const geist = Geist({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
   title: "Notiapply",
@@ -20,7 +20,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={geist.className}>
+    <html lang="en" className={geist.variable}>
       <body>
         <ErrorBoundary>
           {children}

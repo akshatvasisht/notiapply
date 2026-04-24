@@ -7,11 +7,11 @@ This project spans multiple languages (TypeScript, Python, Rust). Strict adheren
 ### Strict Types
 The database schema acts as the ultimate unyielding truth. All TypeScript interfaces map 1:1 with the defined Postgres tables. 
 - Avoid `any` under all circumstances. Use `unknown` or define an exhaustive literal union if the data shape is inherently dynamic (e.g. the pipeline config schema).
-- Shared domain models reside entirely in `app/lib/types.ts`.
+- Shared domain models reside in `app/lib/types/` (barrel at `types/index.ts`).
 
 ### React Paradigms
 - **State Integrity**: Notiapply relies heavily on complex `useEffect` state syncing. Ensure dependency arrays are exhaustive.
-- **CSS**: Tailwind v4 using `@theme` syntax in `globals.css`. Do not write arbitrary inline hex codes in React components. Stick to the strictly defined `--color-google-blue`, `--color-surface-raised`, etc., to preserve light/dark mode parity without media queries.
+- **CSS**: Tailwind v4 using `@theme` syntax in `globals.css`. Do not write arbitrary inline hex codes in React components. Stick to the Material You design tokens defined in `globals.css` (`--color-primary`, `--color-surface`, `--color-on-surface-variant`, etc.) to preserve light/dark mode parity without media queries.
 
 ### Component Isolation
 - Forms in the `SetupWizard` and `SettingsPage` must be entirely self-contained, propagating generic `onChange` and `onTest` handler payloads upwards, rather than deeply nesting the parent state pointer.
@@ -32,6 +32,6 @@ The Tauri core acts exclusively as a secure orchestrator handling OS-level const
 
 ## Database Management
 
-- Schema alterations must be explicitly tracked using deterministic `dbmate` migration files located in `migrations/`.
+- Schema alterations live in `migrations/` as plain SQL files prefixed with a sortable timestamp (`YYYYMMDDHHMMSS_description.sql`). No `-- migrate:up`/`-- migrate:down` markers — `deploy/docker/migrate.sh` applies them in filename order, tracking applied versions in a `schema_migrations` table.
 - Never execute arbitrary `ALTER` statements against the production DB.
 - Use atomic `pg` transactions whenever executing state changes involving external LLM or sidecar events to prevent dangling "running" states if an asynchronous boundary abruptly terminates.

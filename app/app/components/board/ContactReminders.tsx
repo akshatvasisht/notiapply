@@ -1,79 +1,69 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import React, { memo, useEffect, useMemo, useState } from 'react';
 import type { Contact } from '@/lib/types';
+import { getUrgencyTier } from '@/lib/types';
 
 interface ContactRemindersProps {
     contacts: Contact[];
     onFilterOverdue: () => void;
+    hidden?: boolean;
 }
 
-export default function ContactReminders({ contacts, onFilterOverdue }: ContactRemindersProps) {
+function ContactReminders({ contacts, onFilterOverdue, hidden = false }: ContactRemindersProps) {
     const [dismissed, setDismissed] = useState(false);
-    const [visible, setVisible] = useState(false);
 
-    // Count contacts with overdue follow-ups
-    const overdueContacts = contacts.filter(c => {
-        if (!c.follow_up_date) return false;
-        const followUpDate = new Date(c.follow_up_date);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        return followUpDate <= today && ['contacted', 'replied'].includes(c.state);
-    });
+    // Grouped urgency counts — memoized so we don't re-filter 3× on every parent render
+    const { criticalContacts, overdueContacts, upcomingContacts, actionableContacts } = useMemo(() => {
+        const critical = contacts.filter(c => getUrgencyTier(c) === 'critical');
+        const overdue = contacts.filter(c => getUrgencyTier(c) === 'overdue');
+        const upcoming = contacts.filter(c => getUrgencyTier(c) === 'upcoming');
+        return {
+            criticalContacts: critical,
+            overdueContacts: overdue,
+            upcomingContacts: upcoming,
+            actionableContacts: [...critical, ...overdue],
+        };
+    }, [contacts]);
 
-    const count = overdueContacts.length;
+    const count = actionableContacts.length;
 
+    // Auto-reset dismissed flag when overdue contacts clear
     useEffect(() => {
-        if (count > 0 && !dismissed) {
-            // Delay to trigger slide-in animation
-            const timer = setTimeout(() => setVisible(true), 50);
-            return () => clearTimeout(timer);
-        } else {
-            setVisible(false);
-        }
-    }, [count, dismissed]);
-
-    // Auto-dismiss when no overdue contacts
-    useEffect(() => {
-        if (count === 0) {
-            setDismissed(false);
-        }
+        if (count === 0) setDismissed(false);
     }, [count]);
 
-    if (count === 0 || dismissed) return null;
+    if (count === 0 || dismissed || hidden) return null;
 
     return (
-        <div
-            style={{
-                overflow: 'hidden',
-                maxHeight: visible ? '60px' : '0',
-                opacity: visible ? 1 : 0,
-                transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
-            }}
-        >
+        <>
             <div
+                className="reminder-popup"
+                role="button"
+                tabIndex={0}
+                aria-label="View overdue follow-ups"
+                onClick={onFilterOverdue}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onFilterOverdue(); } }}
                 style={{
-                    margin: '12px 16px',
+                    position: 'fixed',
+                    bottom: 'calc(24px + env(safe-area-inset-bottom, 0px))',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    zIndex: 200,
                     padding: '12px 16px',
-                    background: 'linear-gradient(135deg, var(--color-warning-container) 0%, color-mix(in srgb, var(--color-warning-container) 90%, white) 100%)',
-                    borderLeft: '3px solid var(--color-warning)',
-                    borderRadius: '10px',
+                    background: criticalContacts.length > 0
+                        ? 'var(--color-error-container)'
+                        : 'var(--color-warning-container)',
+                    borderLeft: criticalContacts.length > 0
+                        ? '3px solid var(--color-error)'
+                        : '3px solid var(--color-warning)',
+                    borderRadius: 12,
                     display: 'flex',
                     alignItems: 'center',
                     gap: 12,
-                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04)',
+                    boxShadow: 'var(--elevation-2)',
                     cursor: 'pointer',
-                    transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s',
-                    animation: 'slideInFromTop 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
-                }}
-                onClick={onFilterOverdue}
-                onMouseEnter={e => {
-                    e.currentTarget.style.transform = 'translateY(-1px)';
-                    e.currentTarget.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.06)';
-                }}
-                onMouseLeave={e => {
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04)';
+                    maxWidth: 'calc(100vw - 48px)',
                 }}
             >
                 {/* Calendar Icon */}
@@ -82,12 +72,12 @@ export default function ContactReminders({ contacts, onFilterOverdue }: ContactR
                         width: 32,
                         height: 32,
                         borderRadius: 7,
-                        background: 'var(--color-warning)',
+                        background: criticalContacts.length > 0 ? 'var(--color-error)' : 'var(--color-warning)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         flexShrink: 0,
-                        boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+                        boxShadow: 'var(--elevation-1)',
                     }}
                 >
                     <svg
@@ -95,7 +85,7 @@ export default function ContactReminders({ contacts, onFilterOverdue }: ContactR
                         height="16"
                         viewBox="0 0 24 24"
                         fill="none"
-                        stroke="white"
+                        stroke="currentColor"
                         strokeWidth="2.5"
                         strokeLinecap="round"
                         strokeLinejoin="round"
@@ -115,73 +105,120 @@ export default function ContactReminders({ contacts, onFilterOverdue }: ContactR
                             style={{
                                 fontSize: 14,
                                 fontWeight: 600,
-                                color: 'var(--color-warning)',
+                                color: criticalContacts.length > 0 ? 'var(--color-error)' : 'var(--color-warning)',
                                 letterSpacing: '-0.01em',
                             }}
                         >
                             Follow-up Reminders
                         </span>
-                        {/* Pulsing Badge */}
-                        <span
-                            style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                minWidth: 22,
-                                height: 22,
-                                padding: '0 6px',
-                                fontSize: 11,
-                                fontWeight: 700,
-                                color: 'white',
-                                background: 'var(--color-warning)',
-                                borderRadius: 11,
-                                animation: 'gentlePulse 2.5s ease-in-out infinite',
-                                boxShadow: '0 0 0 0 var(--color-warning)',
-                            }}
-                        >
-                            {count}
-                        </span>
+                        {/* Critical badge */}
+                        {criticalContacts.length > 0 && (
+                            <span
+                                style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    minWidth: 22,
+                                    height: 22,
+                                    padding: '0 6px',
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    color: 'var(--color-on-primary)',
+                                    background: 'var(--color-error)',
+                                    borderRadius: 11,
+                                    animation: 'gentlePulse 2.5s ease-in-out infinite',
+                                    boxShadow: '0 0 0 0 var(--color-error)',
+                                }}
+                            >
+                                {criticalContacts.length}
+                            </span>
+                        )}
+                        {/* Overdue badge */}
+                        {overdueContacts.length > 0 && (
+                            <span
+                                style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    minWidth: 22,
+                                    height: 22,
+                                    padding: '0 6px',
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    color: 'var(--color-on-primary)',
+                                    background: 'var(--color-warning)',
+                                    borderRadius: 11,
+                                    animation: 'gentlePulse 2.5s ease-in-out infinite',
+                                    boxShadow: '0 0 0 0 var(--color-warning)',
+                                }}
+                            >
+                                {overdueContacts.length}
+                            </span>
+                        )}
+                        {/* Upcoming badge (secondary) */}
+                        {upcomingContacts.length > 0 && (
+                            <span
+                                style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    minWidth: 22,
+                                    height: 22,
+                                    padding: '0 6px',
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    color: 'var(--color-on-primary)',
+                                    background: 'var(--color-primary)',
+                                    borderRadius: 11,
+                                    opacity: 0.85,
+                                }}
+                            >
+                                {upcomingContacts.length}
+                            </span>
+                        )}
                     </div>
                     <p
                         style={{
                             margin: '3px 0 0 0',
                             fontSize: 12,
-                            color: 'color-mix(in srgb, var(--color-warning) 85%, black)',
+                            color: criticalContacts.length > 0
+                                ? 'var(--color-error)'
+                                : 'var(--color-warning)',
                             lineHeight: 1.4,
                         }}
                     >
-                        {count === 1 ? '1 contact needs' : `${count} contacts need`} follow-up today
+                        {criticalContacts.length > 0 && overdueContacts.length > 0
+                            ? `${criticalContacts.length} critical · ${overdueContacts.length} overdue`
+                            : criticalContacts.length > 0
+                                ? `${criticalContacts.length} ${criticalContacts.length === 1 ? 'contact' : 'contacts'} awaiting response`
+                                : `${overdueContacts.length} ${overdueContacts.length === 1 ? 'contact needs' : 'contacts need'} follow-up today`}
+                        {upcomingContacts.length > 0 && ` · ${upcomingContacts.length} upcoming`}
                     </p>
                 </div>
 
                 {/* Dismiss Button */}
                 <button
+                    className="reminder-dismiss-btn"
                     onClick={e => {
                         e.stopPropagation();
                         setDismissed(true);
                     }}
                     style={{
-                        width: 28,
-                        height: 28,
+                        '--color-dismiss': criticalContacts.length > 0 ? 'var(--color-error)' : 'var(--color-warning)',
+                        width: 44,
+                        height: 44,
                         borderRadius: 6,
                         border: 'none',
                         background: 'transparent',
-                        color: 'color-mix(in srgb, var(--color-warning) 70%, transparent)',
+                        color: criticalContacts.length > 0
+                            ? 'var(--color-error-muted)'
+                            : 'var(--color-warning-muted)',
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         flexShrink: 0,
-                        transition: 'all 0.2s',
-                    }}
-                    onMouseEnter={e => {
-                        e.currentTarget.style.background = 'color-mix(in srgb, var(--color-warning) 15%, transparent)';
-                        e.currentTarget.style.color = 'var(--color-warning)';
-                    }}
-                    onMouseLeave={e => {
-                        e.currentTarget.style.background = 'transparent';
-                        e.currentTarget.style.color = 'color-mix(in srgb, var(--color-warning) 70%, transparent)';
-                    }}
+                    } as React.CSSProperties}
                     aria-label="Dismiss reminder"
                 >
                     <svg
@@ -198,30 +235,9 @@ export default function ContactReminders({ contacts, onFilterOverdue }: ContactR
                         <line x1="6" y1="6" x2="18" y2="18" />
                     </svg>
                 </button>
-
-                {/* Inline Keyframes */}
-                <style>{`
-                    @keyframes slideInFromTop {
-                        from {
-                            transform: translateY(-10px);
-                            opacity: 0;
-                        }
-                        to {
-                            transform: translateY(0);
-                            opacity: 1;
-                        }
-                    }
-
-                    @keyframes gentlePulse {
-                        0%, 100% {
-                            box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.4);
-                        }
-                        50% {
-                            box-shadow: 0 0 0 6px rgba(251, 191, 36, 0);
-                        }
-                    }
-                `}</style>
             </div>
-        </div>
+        </>
     );
 }
+
+export default memo(ContactReminders);

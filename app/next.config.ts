@@ -5,13 +5,16 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
-  serverExternalPackages: ['pg', 'pg-pool'],
+  serverExternalPackages: ['pg', 'pg-pool', 'nodemailer'],
 
   // Turbopack config (Next.js 16 default)
   turbopack: {
     resolveAlias: {
-      // Prevent pg from bundling in browser by aliasing to empty module
+      // Prevent Node.js-only modules from bundling in browser
       pg: './lib/pg-stub.ts',
+      nodemailer: './lib/nodemailer-stub.ts',
+      dns: './lib/dns-stub.ts',
+      'dns/promises': './lib/dns-stub.ts',
     },
   },
 
@@ -25,11 +28,14 @@ const nextConfig: NextConfig = {
         net: false,
         tls: false,
         dns: false,
+        child_process: false,
       };
-      // Alias pg to empty module for browser builds
+      // Alias Node.js-only packages to stubs for browser builds
       config.resolve.alias = {
         ...config.resolve.alias,
         pg: false,
+        nodemailer: false,
+        'dns/promises': false,
       };
     }
     return config;

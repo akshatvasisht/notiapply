@@ -120,7 +120,9 @@ async function solveCaptchaIfPresent(page) {
     console.error(`CAPTCHA detected: ${captchaType}`);
 
     // Strategy 1: Try stealth bypass first (fastest, no API calls)
+    // addInitScript only applies to future navigations, so reload to trigger it
     await bypassCaptchaWithStealth(page);
+    await page.reload({ waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(2000);
 
     const stillPresentAfterStealth = await detectCaptcha(page);

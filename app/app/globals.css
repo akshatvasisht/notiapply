@@ -29,8 +29,13 @@
   --color-success-container: #C4EED0;
   --color-warning: #EA8600;
   --color-warning-container: #FEEFC3;
+  --color-warning-subtle: #FFF8E6;
+  --color-warning-border: rgba(234, 134, 0, 0.35);
+  --color-success-border: rgba(30, 142, 62, 0.25);
   --color-error: #C5221F;
+  --color-on-error: #FFFFFF;
   --color-error-container: #FFDAD6;
+  --color-on-success: #FFFFFF;
   --color-info: #1967D2;
   --color-info-container: #D3E3FD;
 
@@ -48,6 +53,25 @@
   --elevation-1: 0 1px 2px 0 rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
   --elevation-2: 0 1px 3px 0 rgba(60, 64, 67, 0.3), 0 4px 8px 3px rgba(60, 64, 67, 0.15);
   --elevation-3: 0 4px 8px 3px rgba(60, 64, 67, 0.15), 0 1px 3px 0 rgba(60, 64, 67, 0.3);
+  --elevation-modal: 0 20px 60px rgba(0, 0, 0, 0.3);
+  --color-overlay: rgba(0, 0, 0, 0.5);
+
+  /* Token aliases — bridge legacy component naming to Material You tokens */
+  --color-text-primary: var(--color-on-surface);
+  --color-text-secondary: var(--color-on-surface-secondary);
+  --color-text-tertiary: var(--color-on-surface-variant);
+  --color-border: var(--color-outline);
+  --color-text-disabled: var(--color-on-surface-disabled);
+  --color-text-inverse: var(--color-inverse-on-surface);
+
+  /* Logo brand colors */
+  --color-logo-blue: #2f79dd;
+  --color-logo-green: #2fa455;
+  --color-logo-red: #ed4137;
+
+  /* Tonal variants for contextual use */
+  --color-error-muted: rgba(197, 34, 31, 0.65);
+  --color-warning-muted: rgba(234, 134, 0, 0.65);
 
   /* Spacing Scale (8pt grid system) */
   --spacing-xxs: 2px;
@@ -99,7 +123,7 @@
 
 @layer base {
   body {
-    font-family: 'Google Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+    font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
     font-size: 14px;
     line-height: 1.5;
     color: var(--color-on-surface);
@@ -174,7 +198,9 @@
       --color-warning: #FFBB33;
       --color-warning-container: #5C3800;
       --color-error: #F2B8B5;
+      --color-on-error: #601410;
       --color-error-container: #8C1D18;
+      --color-on-success: #003919;
       --color-info: #A8C7FA;
       --color-info-container: #004A77;
 
@@ -212,6 +238,171 @@
     background: var(--color-outline);
   }
 
+  /* Respect user motion preferences — applied globally before keyframes */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  /* BaseCard hover lift — shared across Job and Contact boards */
+  .base-card {
+    transition: box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .base-card:hover:not([data-dragging='true']) {
+    box-shadow: var(--elevation-2) !important;
+    transform: translateY(-2px);
+  }
+  .base-card[data-dragging='true'] {
+    opacity: 0.5;
+    cursor: grabbing;
+  }
+
+  /* BaseColumn collapsible header */
+  .base-column-header {
+    transition: background 0.15s ease;
+  }
+  .base-column-header:hover {
+    background: var(--color-surface-container) !important;
+  }
+  .base-column-header:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
+  }
+
+  /* CollapsedColumnRail */
+  .collapsed-rail {
+    transition: background 0.15s ease;
+  }
+  .collapsed-rail:hover {
+    background: var(--color-surface-container) !important;
+  }
+  .collapsed-rail:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+
+  /* Show-more button in Column / ContactColumn */
+  .show-more-btn {
+    transition: background 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .show-more-btn:hover {
+    background: var(--color-primary-container) !important;
+    box-shadow: var(--elevation-1) !important;
+  }
+  .show-more-btn:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+
+  /* BoardHeader settings gear */
+  .settings-gear-btn {
+    transition: background 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .settings-gear-btn:hover {
+    background: var(--color-surface-container-high) !important;
+    transform: scale(1.05);
+  }
+  .settings-gear-btn:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+
+  /* ActionButton — dynamic color via --action-color CSS custom property */
+  .action-btn {
+    transition: background 0.15s, color 0.15s;
+  }
+  .action-btn:hover {
+    background: var(--action-color) !important;
+    color: var(--color-text-inverse) !important;
+  }
+  .action-btn:focus-visible {
+    outline: 2px solid var(--action-color);
+    outline-offset: 2px;
+  }
+
+  /* WelcomeScreen CTA */
+  .welcome-cta-btn {
+    transition: box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .welcome-cta-btn:hover {
+    box-shadow: var(--elevation-2) !important;
+    transform: translateY(-2px) scale(1.02);
+  }
+  .welcome-cta-btn:active {
+    transform: translateY(0) scale(0.98) !important;
+  }
+  .welcome-cta-btn:focus-visible {
+    outline: 2px solid var(--color-on-primary);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .base-card, .base-column-header, .collapsed-rail, .show-more-btn,
+    .settings-gear-btn, .action-btn, .welcome-cta-btn { transition: none; }
+    .base-card:hover:not([data-dragging='true']) { transform: none; }
+    .settings-gear-btn:hover { transform: none; }
+    .welcome-cta-btn:hover { transform: none; }
+    .welcome-cta-btn:active { transform: none !important; }
+  }
+
+  /* Legend header buttons — used by StatusLegend, ContactStatusLegend, SourceLegend */
+  .legend-header-btn {
+    transition: background 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .legend-header-btn:hover {
+    background: var(--color-surface-container-high) !important;
+  }
+  .legend-header-btn:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
+  }
+
+  /* Shared menu item hover — used by ContactActions + JobActions */
+  .menu-item-btn {
+    transition: background 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .menu-item-btn:not(:disabled):hover {
+    background: var(--color-secondary-container) !important;
+  }
+  .menu-item-btn:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
+  }
+
+  /* BoardHeader — responsive collapse at narrow window widths */
+  @media (max-width: 720px) {
+    .board-header-metrics {
+      display: none !important;
+    }
+  }
+  @media (max-width: 560px) {
+    .board-header {
+      grid-template-columns: 1fr auto !important;
+    }
+    .board-header-center {
+      display: none !important;
+    }
+  }
+
+  /* Two-column detail/focus layout — stack on narrow viewports */
+  @media (max-width: 640px) {
+    .detail-layout,
+    .focus-layout {
+      flex-direction: column !important;
+    }
+    .detail-sidebar,
+    .focus-sidebar {
+      min-width: unset !important;
+      max-width: unset !important;
+      width: 100% !important;
+      border-top: 1px solid var(--color-outline-variant);
+    }
+  }
+
   /* Material Motion — Emphasized easing curves */
   @keyframes fadeIn {
     from {
@@ -223,6 +414,10 @@
       opacity: 1;
       transform: translateY(0);
     }
+  }
+
+  .card-fade-in {
+    animation: fadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   @keyframes scaleIn {
@@ -249,6 +444,22 @@
     100% {
       opacity: 0.5;
     }
+  }
+
+  @keyframes slideInLeft {
+    from {
+      opacity: 0;
+      transform: translateX(-20px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  .slide-in-left {
+    animation: slideInLeft 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   @keyframes slideUp {
@@ -290,7 +501,8 @@
 
   /* Focus states with proper Material styling */
   button:focus-visible,
-  input:focus-visible {
+  input:focus-visible,
+  [role="button"]:focus-visible {
     outline: 2px solid var(--color-primary);
     outline-offset: 2px;
   }
@@ -361,5 +573,142 @@
 
   .job-description-markdown a:hover {
     text-decoration: underline;
+  }
+
+  /* OutcomeTracker buttons */
+  .outcome-btn-yes {
+    transition: transform 0.1s, box-shadow 0.15s, filter 0.15s;
+  }
+  .outcome-btn-yes:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px var(--color-success-border);
+    filter: brightness(1.05);
+  }
+  .outcome-btn-yes:active {
+    transform: translateY(0) scale(0.98);
+  }
+  .outcome-btn-yes:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+  .outcome-btn-no {
+    transition: border-color 0.15s, background 0.15s, transform 0.1s;
+  }
+  .outcome-btn-no:hover {
+    border-color: var(--color-text-tertiary) !important;
+    background: var(--color-surface-container) !important;
+  }
+  .outcome-btn-no:active {
+    transform: scale(0.98);
+  }
+  .outcome-btn-no:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+
+  /* ContactDetail enrich button */
+  .cd-enrich-btn {
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .cd-enrich-btn:hover {
+    border-color: var(--color-primary) !important;
+    color: var(--color-primary) !important;
+  }
+  .cd-enrich-btn:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+
+  /* EnrichContactModal buttons & fields */
+  .enrich-cancel-btn:not(:disabled):hover {
+    background: var(--color-surface-container) !important;
+    border-color: var(--color-on-surface-variant) !important;
+  }
+  .enrich-save-btn:not(:disabled):hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px var(--color-success-border);
+    filter: brightness(1.05);
+  }
+  .enrich-save-btn:not(:disabled):active {
+    transform: translateY(0) scale(0.98);
+  }
+  .enrich-field:focus-visible {
+    border-color: var(--color-primary) !important;
+    outline: 2px solid var(--color-primary-container);
+    outline-offset: 0;
+  }
+
+  /* JobsBoard agent button */
+  .jobs-agent-btn {
+    transition: background 0.15s, color 0.15s;
+  }
+  .jobs-agent-btn:hover {
+    background: var(--color-error) !important;
+    color: var(--color-on-error) !important;
+  }
+  .jobs-agent-btn:focus-visible {
+    outline: 2px solid var(--color-error);
+    outline-offset: 2px;
+  }
+
+  /* ContactReminders popup & dismiss */
+  @keyframes reminderSlideIn {
+    from { transform: translateY(-12px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+  @keyframes gentlePulse {
+    0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-warning) 40%, transparent); }
+    50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-warning) 0%, transparent); }
+  }
+  .reminder-popup {
+    transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .reminder-popup:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--elevation-3) !important;
+  }
+  .reminder-dismiss-btn {
+    transition: background 0.2s, color 0.2s;
+  }
+  .reminder-dismiss-btn:hover {
+    background: color-mix(in srgb, var(--color-dismiss) 15%, transparent) !important;
+    color: var(--color-dismiss) !important;
+  }
+  .reminder-dismiss-btn:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .outcome-btn-yes, .outcome-btn-no,
+    .cd-enrich-btn, .enrich-save-btn,
+    .jobs-agent-btn,
+    .reminder-popup, .reminder-dismiss-btn { transition: none; }
+    .outcome-btn-yes:hover, .outcome-btn-yes:active { transform: none; }
+    .outcome-btn-no:active { transform: none; }
+    .enrich-save-btn:not(:disabled):hover { transform: none; }
+    .enrich-save-btn:not(:disabled):active { transform: none; }
+    .reminder-popup:hover { transform: none; }
+    .slide-in-left { animation: none; }
+  }
+
+  /* BoardHeader search input — focus state via CSS instead of inline handlers */
+  .board-search-input:focus {
+    border-color: var(--color-primary) !important;
+    background: var(--color-surface-container) !important;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 10%, transparent);
+  }
+
+  /* ViewToggle focus-visible indicator */
+  .view-toggle-btn:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
+    border-radius: 16px;
+  }
+
+  /* Email queue pulse animation */
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
   }
 }

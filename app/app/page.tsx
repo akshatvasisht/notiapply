@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { getUserConfig } from '@/lib/db';
+import { getUserConfig, hasDatabase } from '@/lib/db';
 import type { UserConfig } from '@/lib/types';
 import Board from '@/app/components/board/JobsBoard';
 import ContactsBoard from '@/app/components/board/ContactsBoard';
@@ -35,7 +35,15 @@ export default function Home() {
   const [actionsContent, setActionsContent] = useState<React.ReactNode>(null);
 
   useEffect(() => {
-    getUserConfig()
+    if (!hasDatabase()) {
+      setConfig({ setup_complete: false });
+      setLoading(false);
+      return;
+    }
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('config timeout')), 6000)
+    );
+    Promise.race([getUserConfig(), timeout])
       .then(setConfig)
       .catch(() => setConfig({ setup_complete: false }))
       .finally(() => setLoading(false));

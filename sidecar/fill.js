@@ -20,6 +20,8 @@ const minimist = require('minimist');
 const { createBrowserAgent } = require('./browser-agent');
 const { createEmailChecker } = require('./email-verification');
 const { solveCaptchaIfPresent } = require('./captcha-solver');
+const { ATS_PATTERNS, detectAts } = require('./form-detector');
+const { fillApplication } = require('./field-filler');
 
 // Apply stealth plugin to bypass bot detection
 chromium.use(StealthPlugin());
@@ -42,22 +44,6 @@ function emit(event) {
     process.stdout.write(JSON.stringify(event) + '\n');
 }
 
-const ATS_PATTERNS = [
-    { pattern: /workday\.com|myworkdayjobs\.com/, name: 'workday' },
-    { pattern: /greenhouse\.io/, name: 'greenhouse' },
-    { pattern: /lever\.co/, name: 'lever' },
-    { pattern: /icims\.com/, name: 'icims' },
-    { pattern: /taleo\.net/, name: 'taleo' },
-    { pattern: /jobvite\.com/, name: 'jobvite' },
-    { pattern: /ashbyhq\.com/, name: 'ashby' },
-];
-
-function detectAts(url) {
-    for (const { pattern, name } of ATS_PATTERNS) {
-        if (pattern.test(url)) return name;
-    }
-    return 'unknown';
-}
 
 /**
  * Preflight: verify that the required external binaries exist before touching the DB.
@@ -86,13 +72,51 @@ function preflight() {
     }
 }
 
+// Module-level refs for signal handler cleanup
+let _currentJobId = null;
+let _db = null;
+let _browser = null;
+
+async function cleanup(signal) {
+    emit({ event: 'warning', message: `Received ${signal}, cleaning up...` });
+    try {
+        if (_currentJobId && _db) {
+            await _db.query("UPDATE jobs SET state = 'fill-failed' WHERE id = $1", [_currentJobId]);
+        }
+    } catch (e) { console.error('cleanup: failed to mark job fill-failed:', e.message); }
+    try { if (_browser) await _browser.close(); } catch (e) { console.error('cleanup: failed to close browser:', e.message); }
+    try { if (_db) await _db.end(); } catch (e) { console.error('cleanup: failed to close DB:', e.message); }
+    process.exit(1);
+}
+
+process.on('SIGTERM', () => cleanup('SIGTERM'));
+process.on('SIGINT', () => cleanup('SIGINT'));
+
 async function main() {
     // Validate that Chromium + Simplify paths exist before touching the DB.
     // Emits preflight_failed and exits(2) if either is missing.
     preflight();
 
-    const db = new Client({ connectionString: DB_URL });
+    // Clean up Chrome profile cache to prevent unbounded growth across sessions
+    const profileDir = path.join(os.tmpdir(), 'notiapply-chrome-profile');
+    const cacheDirs = ['Default/Cache', 'Default/Code Cache', 'Default/Service Worker/CacheStorage'];
+    for (const cacheDir of cacheDirs) {
+        const cachePath = path.join(profileDir, cacheDir);
+        try {
+            if (fs.existsSync(cachePath)) {
+                fs.rmSync(cachePath, { recursive: true });
+            }
+        } catch (e) { /* best effort — cache may be locked */ }
+    }
+
+    _db = new Client({ connectionString: DB_URL });
+    const db = _db;
     await db.connect();
+
+    // Recover any jobs stuck in 'filling' from a previous crashed session
+    await db.query(
+        "UPDATE jobs SET state = 'fill-failed' WHERE state = 'filling' AND updated_at < NOW() - INTERVAL '5 minutes'"
+    );
 
     // Load browser agent config from database
     let browserAgent = null;
@@ -115,7 +139,7 @@ async function main() {
     FROM applications a
     JOIN jobs j ON j.id = a.job_id
     WHERE j.state = 'queued'
-    ORDER BY a.queued_at ASC
+    ORDER BY j.relevance_score DESC NULLS LAST, a.queued_at ASC
   `);
 
     if (applications.length === 0) {
@@ -138,7 +162,7 @@ async function main() {
     }
 
     // Launch Chromium with Simplify extension
-    const browser = await chromium.launchPersistentContext(
+    _browser = await chromium.launchPersistentContext(
         path.join(os.tmpdir(), 'notiapply-chrome-profile'),
         {
             headless: false,
@@ -149,12 +173,15 @@ async function main() {
             ],
         }
     );
+    let browser = _browser;
 
     let filled = 0;
     let incomplete = 0;
     let failed = 0;
+    let fillCount = 0;
 
     for (const app of applications) {
+        let page = null;
         try {
             // Atomic state claim
             const claimResult = await db.query(
@@ -164,12 +191,14 @@ async function main() {
 
             if (claimResult.rows.length === 0) continue; // Another process claimed this job
 
+            _currentJobId = app.job_id;
+
             await db.query(
                 'UPDATE applications SET fill_started_at = NOW() WHERE id = $1',
                 [app.id]
             );
 
-            const page = await browser.newPage();
+            page = await browser.newPage();
 
             // Network retry with exponential backoff
             let navigationSuccess = false;
@@ -422,147 +451,18 @@ async function main() {
                 }
             }
 
-            // Resume upload — Strategy A: static file input
-            let uploaded = false;
-            try {
-                const fileInput = page.locator('input[type="file"]').first();
-                await fileInput.waitFor({ state: 'attached', timeout: 3000 });
-                await fileInput.setInputFiles(app.local_resume_pdf_path);
-                uploaded = true;
-            } catch {
-                // Strategy B: dynamic file chooser (Workday, iCIMS)
-                try {
-                    const [chooser] = await Promise.all([
-                        page.waitForEvent('filechooser', { timeout: 5000 }),
-                        page.click('[data-automation-id="fileUpload"], [aria-label*="upload"], [aria-label*="Upload"]'),
-                    ]);
-                    await chooser.setFiles(app.local_resume_pdf_path);
-                    uploaded = true;
-                } catch {
-                    // Could not upload — continue anyway, Simplify may still work
-                }
-            }
+            // Resume upload + Simplify autofill + browser-agent fallback
+            const fillResult = await fillApplication(page, app, browserAgent, userConfig, db, ats, emit);
 
-            // Wait for Simplify overlay
-            try {
-                await page.waitForSelector('[data-simplify-loaded="true"]', { timeout: 10000 });
-            } catch {
-                // Simplify timeout → mark as manual-review instead of failed
-                await db.query("UPDATE jobs SET state = 'review-incomplete' WHERE id = $1", [app.job_id]);
-                await db.query(
-                    "UPDATE applications SET fill_error_ats = $1, fill_notes = $2, fill_completed_at = NOW() WHERE id = $3",
-                    [ats, 'Simplify extension did not load. Manual review required.', app.id]
-                );
-                emit({ event: 'incomplete', application_id: app.id, ats, missing_fields: ['Simplify not loaded'] });
+            // fillApplication handles the Simplify-missing case internally (DB updates + emit)
+            // and returns { allMissingFields: null, simplifyMissing: true } as a sentinel.
+            if (fillResult.simplifyMissing) {
                 incomplete++;
                 await page.close();
                 continue;
             }
 
-            // Click Simplify autofill button to trigger filling
-            let autofillTriggered = false;
-            try {
-                // Strategy 1: Look for Simplify's autofill button by common selectors
-                const simplifyButton = await page.waitForSelector(
-                    'button:has-text("Autofill"), [aria-label*="Autofill"], [data-testid*="autofill"], button[class*="simplify"]',
-                    { timeout: 3000 }
-                ).catch(() => null);
-
-                if (simplifyButton) {
-                    await simplifyButton.click();
-                    autofillTriggered = true;
-                } else {
-                    // Strategy 2: Search for any button with "autofill" text (case-insensitive)
-                    autofillTriggered = await page.evaluate(() => {
-                        const buttons = Array.from(document.querySelectorAll('button, [role="button"]'));
-                        const autofillBtn = buttons.find(btn =>
-                            btn.textContent?.toLowerCase().includes('autofill') ||
-                            btn.getAttribute('aria-label')?.toLowerCase().includes('autofill')
-                        );
-                        if (autofillBtn) {
-                            autofillBtn.click();
-                            return true;
-                        }
-                        return false;
-                    });
-                }
-
-                if (!autofillTriggered) {
-                    // Strategy 3: Try clicking Simplify extension popup/icon if visible
-                    const extensionIcon = await page.locator('[class*="simplify"], [id*="simplify"]').first();
-                    if (await extensionIcon.isVisible().catch(() => false)) {
-                        await extensionIcon.click();
-                        autofillTriggered = true;
-                    }
-                }
-            } catch (e) {
-                emit({ event: 'warning', message: `Could not click Simplify button: ${e.message}` });
-            }
-
-            // Wait for Simplify autofill to complete
-            try {
-                await page.waitForSelector('[data-simplify-filling="false"]', { timeout: 30000 });
-            } catch {
-                // Timeout waiting for fill — treat as incomplete
-                if (!autofillTriggered) {
-                    emit({ event: 'warning', message: 'Simplify autofill button not found - may need manual trigger' });
-                }
-            }
-
-            // Post-fill inspection
-            let emptyRequired = await page.evaluate(() =>
-                Array.from(document.querySelectorAll(
-                    'input[required], select[required], textarea[required]'
-                ))
-                    .filter(el => !el.value?.trim())
-                    .map(el => {
-                        const label = document.querySelector(`label[for="${el.id}"]`);
-                        return label?.innerText.trim() || el.name || el.placeholder || 'Unknown field';
-                    })
-            );
-
-            // Track resume upload status
-            let allMissingFields = uploaded ? emptyRequired : ['Resume not uploaded', ...emptyRequired];
-
-            // Fallback to browser agent if Simplify left required fields empty
-            if (allMissingFields.length > 0 && browserAgent && userConfig.browser_agent_fallback) {
-                try {
-                    emit({ event: 'info', message: `Simplify left ${allMissingFields.length} fields empty. Attempting browser agent fallback...` });
-
-                    // Prepare application data from user config
-                    const applicationData = {
-                        firstName: userConfig.user_first_name,
-                        lastName: userConfig.user_last_name,
-                        email: userConfig.user_email,
-                        phone: userConfig.user_phone,
-                        resumePath: app.local_resume_pdf_path
-                    };
-
-                    await browserAgent.fillApplication(page, applicationData);
-
-                    // Re-check for empty required fields
-                    emptyRequired = await page.evaluate(() =>
-                        Array.from(document.querySelectorAll(
-                            'input[required], select[required], textarea[required]'
-                        ))
-                            .filter(el => !el.value?.trim())
-                            .map(el => {
-                                const label = document.querySelector(`label[for="${el.id}"]`);
-                                return label?.innerText.trim() || el.name || el.placeholder || 'Unknown field';
-                            })
-                    );
-
-                    allMissingFields = uploaded ? emptyRequired : ['Resume not uploaded', ...emptyRequired];
-
-                    if (allMissingFields.length === 0) {
-                        emit({ event: 'success', message: 'Browser agent successfully filled remaining fields' });
-                    } else {
-                        emit({ event: 'warning', message: `Browser agent reduced missing fields to ${allMissingFields.length}` });
-                    }
-                } catch (agentError) {
-                    emit({ event: 'warning', message: `Browser agent fallback failed: ${agentError.message}` });
-                }
-            }
+            const { allMissingFields } = fillResult;
 
             if (allMissingFields.length > 0) {
                 await db.query("UPDATE jobs SET state = 'review-incomplete' WHERE id = $1", [app.job_id]);
@@ -579,7 +479,33 @@ async function main() {
                 filled++;
             }
 
+            _currentJobId = null;
             await page.close();
+
+            fillCount++;
+            if (fillCount % 5 === 0) {
+                const mem = process.memoryUsage();
+                emit({
+                    event: 'info',
+                    message: `Memory after ${fillCount} fills: RSS=${Math.round(mem.rss / 1024 / 1024)}MB heap=${Math.round(mem.heapUsed / 1024 / 1024)}MB`
+                });
+            }
+            if (fillCount % 10 === 0 && fillCount < applications.length) {
+                emit({ event: 'info', message: `Rotating browser context after ${fillCount} fills` });
+                await browser.close();
+                _browser = await chromium.launchPersistentContext(
+                    path.join(os.tmpdir(), 'notiapply-chrome-profile'),
+                    {
+                        headless: false,
+                        executablePath: CHROMIUM_PATH,
+                        args: [
+                            `--disable-extensions-except=${SIMPLIFY_PATH}`,
+                            `--load-extension=${SIMPLIFY_PATH}`,
+                        ],
+                    }
+                );
+                browser = _browser;
+            }
         } catch (err) {
             const ats = detectAts(app.url);
             await db.query("UPDATE jobs SET state = 'fill-failed' WHERE id = $1", [app.job_id]);
@@ -589,6 +515,8 @@ async function main() {
             );
             emit({ event: 'failed', application_id: app.id, ats, reason: err.message });
             failed++;
+            _currentJobId = null;
+            try { if (page) await page.close(); } catch (e) { /* page may already be closed */ }
         }
     }
 

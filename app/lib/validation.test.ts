@@ -6,19 +6,22 @@ import {
     UserConfigSchema,
     validateContact,
     validateJob,
+    validateApplication,
+    validateUserConfig,
     safeParseContact,
     safeParseJob,
+    safeParseApplication,
     validateContacts,
     JobStateSchema,
     ContactStateSchema,
     LLMProviderSchema,
 } from './validation';
+import { makeContact, makeJob, makeApplication, makeUserConfig } from './test-fixtures';
 
 describe('Zod Validation Schemas', () => {
     describe('ContactSchema', () => {
         it('validates correct contact data', () => {
-            const validContact = {
-                id: 1,
+            const validContact = makeContact({
                 name: 'Jane Doe',
                 role: 'Engineering Manager',
                 company_name: 'TechCorp',
@@ -28,20 +31,7 @@ describe('Zod Validation Schemas', () => {
                 notes: 'Met at conference',
                 state: 'drafted',
                 job_id: 1,
-                scraped_company_id: null,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-                follow_up_date: null,
-                intro_source: null,
-                last_contacted_at: null,
-                interaction_log: [],
-                got_response: null,
-                company_funding_stage: null,
-                company_headcount_range: null,
-                company_industry: null,
-                company_notes: null,
-                linkedin_posts_summary: null,
-            };
+            });
 
             const result = ContactSchema.parse(validContact);
             expect(result.id).toBe(1);
@@ -49,31 +39,12 @@ describe('Zod Validation Schemas', () => {
         });
 
         it('rejects invalid email format', () => {
-            const invalidContact = {
-                id: 1,
+            const invalidContact = makeContact({
                 name: 'Jane',
-                role: null,
                 company_name: 'TechCorp',
-                linkedin_url: null,
                 email: 'not-an-email',
-                drafted_message: null,
-                notes: null,
                 state: 'identified',
-                job_id: null,
-                scraped_company_id: null,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-                follow_up_date: null,
-                intro_source: null,
-                last_contacted_at: null,
-                interaction_log: [],
-                got_response: null,
-                company_funding_stage: null,
-                company_headcount_range: null,
-                company_industry: null,
-                company_notes: null,
-                linkedin_posts_summary: null,
-            };
+            });
 
             expect(() => ContactSchema.parse(invalidContact)).toThrow();
         });
@@ -102,27 +73,16 @@ describe('Zod Validation Schemas', () => {
 
     describe('JobSchema', () => {
         it('validates correct job data', () => {
-            const validJob = {
-                id: 1,
+            const validJob = makeJob({
                 source: 'manual',
                 title: 'Software Engineer',
                 company: 'TechCorp',
-                location: 'Remote',
                 url: 'https://example.com/job',
                 description_raw: 'Job description here',
                 salary_min: 120000,
                 salary_max: 150000,
-                equity_min: null,
-                equity_max: null,
-                company_role_location_hash: 'abc123',
-                discovered_at: new Date().toISOString(),
-                docs_fail_reason: null,
                 state: 'submitted',
-                company_logo_url: null,
-                updated_at: new Date().toISOString(),
-                got_callback: null,
-                callback_notes: null,
-            };
+            });
 
             const result = JobSchema.parse(validJob);
             expect(result.title).toBe('Software Engineer');
@@ -130,53 +90,27 @@ describe('Zod Validation Schemas', () => {
         });
 
         it('rejects invalid URL', () => {
-            const invalidJob = {
-                id: 1,
+            const invalidJob = makeJob({
                 source: 'manual',
                 title: 'Engineer',
-                company: 'TechCorp',
-                location: 'Remote',
                 url: 'not-a-url',
-                description_raw: 'Description',
-                salary_min: null,
-                salary_max: null,
-                equity_min: null,
-                equity_max: null,
-                company_role_location_hash: 'abc',
-                discovered_at: new Date().toISOString(),
-                docs_fail_reason: null,
                 state: 'discovered',
-                company_logo_url: null,
-                updated_at: new Date().toISOString(),
-                got_callback: null,
-                callback_notes: null,
-            };
+            });
 
             expect(() => JobSchema.parse(invalidJob)).toThrow();
         });
 
         it('validates salary constraints', () => {
-            const validSalary = {
-                id: 1,
+            const validSalary = makeJob({
                 source: 'manual',
                 title: 'Engineer',
-                company: 'TechCorp',
-                location: 'Remote',
                 url: 'https://example.com',
-                description_raw: 'Description',
                 salary_min: 100000,
                 salary_max: 200000,
                 equity_min: 0.5,
                 equity_max: 1.0,
-                company_role_location_hash: 'abc',
-                discovered_at: new Date().toISOString(),
-                docs_fail_reason: null,
                 state: 'discovered',
-                company_logo_url: null,
-                updated_at: new Date().toISOString(),
-                got_callback: null,
-                callback_notes: null,
-            };
+            });
 
             const result = JobSchema.parse(validSalary);
             expect(result.salary_min).toBe(100000);
@@ -184,27 +118,12 @@ describe('Zod Validation Schemas', () => {
         });
 
         it('rejects negative salary', () => {
-            const invalidSalary = {
-                id: 1,
+            const invalidSalary = makeJob({
                 source: 'manual',
-                title: 'Engineer',
-                company: 'TechCorp',
-                location: 'Remote',
                 url: 'https://example.com',
-                description_raw: 'Description',
                 salary_min: -50000,
-                salary_max: null,
-                equity_min: null,
-                equity_max: null,
-                company_role_location_hash: 'abc',
-                discovered_at: new Date().toISOString(),
-                docs_fail_reason: null,
                 state: 'discovered',
-                company_logo_url: null,
-                updated_at: new Date().toISOString(),
-                got_callback: null,
-                callback_notes: null,
-            };
+            });
 
             expect(() => JobSchema.parse(invalidSalary)).toThrow();
         });
@@ -277,31 +196,11 @@ describe('Zod Validation Schemas', () => {
         });
 
         it('safeParseContact returns success for valid data', () => {
-            const validContact = {
-                id: 1,
+            const validContact = makeContact({
                 name: 'John',
-                role: null,
                 company_name: 'Corp',
-                linkedin_url: null,
-                email: null,
-                drafted_message: null,
-                notes: null,
                 state: 'identified',
-                job_id: null,
-                scraped_company_id: null,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-                follow_up_date: null,
-                intro_source: null,
-                last_contacted_at: null,
-                interaction_log: [],
-                got_response: null,
-                company_funding_stage: null,
-                company_headcount_range: null,
-                company_industry: null,
-                company_notes: null,
-                linkedin_posts_summary: null,
-            };
+            });
 
             const result = safeParseContact(validContact);
             expect(result.success).toBe(true);
@@ -319,56 +218,8 @@ describe('Zod Validation Schemas', () => {
 
         it('validateContacts validates array of contacts', () => {
             const contacts = [
-                {
-                    id: 1,
-                    name: 'Alice',
-                    role: null,
-                    company_name: 'Corp A',
-                    linkedin_url: null,
-                    email: null,
-                    drafted_message: null,
-                    notes: null,
-                    state: 'identified',
-                    job_id: null,
-                    scraped_company_id: null,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                    follow_up_date: null,
-                    intro_source: null,
-                    last_contacted_at: null,
-                    interaction_log: [],
-                    got_response: null,
-                    company_funding_stage: null,
-                    company_headcount_range: null,
-                    company_industry: null,
-                    company_notes: null,
-                    linkedin_posts_summary: null,
-                },
-                {
-                    id: 2,
-                    name: 'Bob',
-                    role: null,
-                    company_name: 'Corp B',
-                    linkedin_url: null,
-                    email: null,
-                    drafted_message: null,
-                    notes: null,
-                    state: 'contacted',
-                    job_id: null,
-                    scraped_company_id: null,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                    follow_up_date: null,
-                    intro_source: null,
-                    last_contacted_at: null,
-                    interaction_log: [],
-                    got_response: null,
-                    company_funding_stage: null,
-                    company_headcount_range: null,
-                    company_industry: null,
-                    company_notes: null,
-                    linkedin_posts_summary: null,
-                },
+                makeContact({ id: 1, name: 'Alice', company_name: 'Corp A', state: 'identified' }),
+                makeContact({ id: 2, name: 'Bob', company_name: 'Corp B', state: 'contacted' }),
             ];
 
             const result = validateContacts(contacts);
@@ -376,5 +227,61 @@ describe('Zod Validation Schemas', () => {
             expect(result[0].name).toBe('Alice');
             expect(result[1].name).toBe('Bob');
         });
+    });
+});
+
+describe('Validation Helper Functions (runtime boundaries)', () => {
+    it('validateApplication passes valid application data', () => {
+        const validApp = makeApplication();
+        const result = validateApplication(validApp);
+        expect(result.id).toBe(1);
+        expect(result.job_id).toBe(1);
+        expect(result.master_resume_id).toBe(1);
+        expect(result.draft_answers).toBeNull();
+    });
+
+    it('validateApplication throws on invalid application data', () => {
+        // Missing required fields: id, job_id, master_resume_id
+        const invalid = { id: 'not-a-number' };
+        expect(() => validateApplication(invalid)).toThrow();
+    });
+
+    it('validateApplication passes with draft_answers array', () => {
+        const appWithAnswers = makeApplication({
+            draft_answers: [
+                { question: 'Why do you want this role?', answer: 'I am passionate.' },
+            ],
+        });
+        const result = validateApplication(appWithAnswers);
+        expect(result.draft_answers).toHaveLength(1);
+        expect(result.draft_answers![0].question).toBe('Why do you want this role?');
+    });
+
+    it('validateUserConfig passes valid config', () => {
+        const config = makeUserConfig();
+        const result = validateUserConfig(config);
+        expect(result.llm_provider).toBe('openai');
+        expect(result.llm_model).toBe('gpt-4');
+    });
+
+    it('validateUserConfig throws on invalid endpoint URL', () => {
+        const badConfig = makeUserConfig({ llm_endpoint: 'not-a-url' });
+        expect(() => validateUserConfig(badConfig)).toThrow();
+    });
+
+    it('safeParseJob returns success for valid job', () => {
+        const job = makeJob();
+        const result = safeParseJob(job);
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.title).toBe('Software Engineer');
+            expect(result.data.is_live).toBe(true);
+        }
+    });
+
+    it('safeParseApplication returns error for invalid data', () => {
+        const invalid = { id: 'bad', job_id: null };
+        const result = safeParseApplication(invalid);
+        expect(result.success).toBe(false);
     });
 });

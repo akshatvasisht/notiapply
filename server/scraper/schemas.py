@@ -34,6 +34,7 @@ class JobSource(str, Enum):
     ASHBY = "ats-ashby"
     SIMPLIFY = "github-simplify"
     WELLFOUND = "wellfound"
+    MANUAL = "manual"
 
 class JobSchema(BaseModel):
     """Schema for a job posting extracted from a career page or job board."""

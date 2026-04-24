@@ -36,7 +36,7 @@ export async function generateDraftMessage(request: DraftMessageRequest): Promis
     const prompt = buildPrompt(contact, jobTitle, companyName, tone, resumeContext);
 
     const llmRequest: LLMRequest = {
-        systemPrompt: 'You are an expert at crafting ultra-concise, high-conversion cold outreach messages for LinkedIn and email. Your messages follow the proven 3-sentence formula: Hook → Value → CTA. Keep it under 60 words, direct, and genuine. No fluff or formalities.',
+        systemPrompt: 'You are an expert at crafting ultra-concise, high-conversion cold outreach messages for LinkedIn and email. Your messages follow a 3-sentence formula adapted to the recipient type: for recruiters use Hook → Role Fit → Resume CTA; for hiring managers use Interest Hook → Achievement → Challenge Question; for peer engineers/designers use Shared Interest → Problem → Soft Connection (NO job ask for peers). Keep it under 60 words, direct, and genuine. No fluff or formalities.',
         userPrompt: prompt,
         maxTokens: 200,  // Reduced from 300 to enforce brevity
         temperature: 0.7,
@@ -177,7 +177,18 @@ function sanitizeForPrompt(text: string): string {
         .trim();
 }
 
-function buildPrompt(
+type OutreachStrategy = 'recruiter' | 'hiring_manager' | 'peer' | 'generic';
+
+export function classifyContactRole(role: string | null): OutreachStrategy {
+    if (!role) return 'generic';
+    const lower = role.toLowerCase();
+    if (/recruit|talent|sourcer/.test(lower)) return 'recruiter';
+    if (/hiring.manager|director|vp|head.of|chief|cto|ceo|founder/.test(lower)) return 'hiring_manager';
+    if (/engineer|developer|designer|product manager|analyst|scientist/.test(lower)) return 'peer';
+    return 'generic';
+}
+
+export function buildPrompt(
     contact: Contact,
     jobTitle?: string,
     companyName?: string,
@@ -220,9 +231,54 @@ function buildPrompt(
         parts.push(`\nRecent activity: ${safeSummary}`);
     }
 
-    // Provide template structure based on best practices
-    parts.push(`\n\nFormat (3 sentences max):
-1. Opening: "Hi [Name], I saw your hiring for [ROLE] at [COMPANY]."
+    const strategy = classifyContactRole(contact.role);
+
+    const strategyTemplates: Record<OutreachStrategy, string> = {
+        recruiter: `\n\nFormat (3 sentences max — recruiter strategy):
+1. Opening: "Hi ${safeName}, I saw ${safeCompany} is hiring${safeJobTitle ? ` for ${safeJobTitle}` : ''}."
+2. Fit: "My [X] experience in [SKILL] maps directly to what you're looking for."
+3. CTA: "Happy to share my resume if it's a fit!"
+
+Requirements:
+- MAXIMUM 3 sentences (50-60 words total)
+- Use contact's actual name (${safeName})
+- Lead with the specific role${safeJobTitle ? ` (${safeJobTitle})` : ''}
+- Highlight 1-2 directly relevant skills
+- End with resume CTA
+- ${sanitizeForPrompt(tone)} tone
+- NO placeholders like [Your Name] - leave unsigned
+- NO formality or fluff`,
+
+        hiring_manager: `\n\nFormat (3 sentences max — hiring manager strategy):
+1. Hook: "Hi ${safeName}, ${safeCompany}'s work on [AREA] caught my attention."
+2. Value: "I've been [RELEVANT ACHIEVEMENT] — directly relevant to what your team is building."
+3. Question: "Would love to hear how your team approaches [RELATED CHALLENGE]?"
+
+Requirements:
+- MAXIMUM 3 sentences (50-60 words total)
+- Use contact's actual name (${safeName})
+- Lead with genuine interest in company work, not job opening
+- Include one concrete achievement
+- End with a thoughtful question, not a resume ask
+- ${sanitizeForPrompt(tone)} tone
+- NO placeholders like [Your Name] - leave unsigned`,
+
+        peer: `\n\nFormat (3 sentences max — peer strategy — NO JOB PITCH):
+1. Hook: "Hi ${safeName}, I came across your [WORK/POST/PROJECT]."
+2. Shared interest: "I've been exploring similar problems around [AREA]."
+3. Soft CTA: "Would love to exchange notes sometime!"
+
+CRITICAL RULES for peer strategy:
+- MAXIMUM 3 sentences (50-60 words total)
+- Use contact's actual name (${safeName})
+- NEVER mention the job opening or that you're job searching
+- Frame entirely as professional connection and shared interests
+- End with soft "exchange notes" CTA, NOT "discuss the role"
+- ${sanitizeForPrompt(tone)} tone
+- NO placeholders like [Your Name] - leave unsigned`,
+
+        generic: `\n\nFormat (3 sentences max):
+1. Opening: "Hi ${safeName}, I saw ${safeCompany} is hiring${safeJobTitle ? ` for ${safeJobTitle}` : ''}."
 2. Value prop: "My experience in [SPECIFIC SKILL/AREA] would be a great fit."
 3. CTA: "Would love to connect and discuss!"
 
@@ -234,7 +290,10 @@ Requirements:
 - End with simple CTA: "Would love to connect and discuss!"
 - ${sanitizeForPrompt(tone)} tone
 - NO placeholders like [Your Name] - leave unsigned
-- NO formality or fluff - keep it direct and genuine`);
+- NO formality or fluff - keep it direct and genuine`,
+    };
+
+    parts.push(strategyTemplates[strategy]);
 
     return parts.join(' ');
 }

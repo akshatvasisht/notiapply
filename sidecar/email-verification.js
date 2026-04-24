@@ -39,6 +39,10 @@ async function checkGmailApi(email, fromDomain, sinceTimestamp) {
             stderr += data.toString();
         });
 
+        python.on('error', (err) => {
+            reject(new Error(`Failed to spawn python3 for email check: ${err.message}`));
+        });
+
         python.on('close', (code) => {
             if (code === 0) {
                 try {

@@ -47,6 +47,12 @@ export default function ManualJobEntry({ onClose, onSuccess }: ManualJobEntryPro
             setError('Title, Company, and URL are required');
             return;
         }
+        try {
+            new URL(formData.url.trim());
+        } catch {
+            setError('Invalid URL — must start with http:// or https://');
+            return;
+        }
 
         setSubmitting(true);
         try {
@@ -219,7 +225,9 @@ export default function ManualJobEntry({ onClose, onSuccess }: ManualJobEntryPro
                 borderBottom: '1px solid var(--color-border)',
                 background: 'var(--color-surface)',
                 padding: '0 24px',
-            }}>
+            }}
+                role="tablist"
+            >
                 {([
                     { key: 'single' as Tab, label: 'Single Entry', icon: '✎' },
                     { key: 'csv' as Tab, label: 'CSV Import', icon: '⊞' },
@@ -227,6 +235,8 @@ export default function ManualJobEntry({ onClose, onSuccess }: ManualJobEntryPro
                 ] as const).map(tab => (
                     <button
                         key={tab.key}
+                        role="tab"
+                        aria-selected={activeTab === tab.key}
                         onClick={() => setActiveTab(tab.key)}
                         style={{
                             padding: '12px 16px',

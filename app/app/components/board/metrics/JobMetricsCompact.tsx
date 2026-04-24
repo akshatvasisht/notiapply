@@ -1,5 +1,6 @@
 'use client';
 
+import { memo, useMemo } from 'react';
 import MetricChip from '@/app/components/common/MetricChip';
 import type { ATSFailure, AutomationStats, SourceCoverage, CallbackStats } from '@/lib/types';
 
@@ -16,16 +17,16 @@ export interface JobMetricsCompactProps {
  *
  * Design: Only show icons when there's an issue
  */
-export default function JobMetricsCompact({
+function JobMetricsCompact({
     atsFailures,
     automationStats,
     lastScrapeTime,
     sourceCoverage,
     callbackStats,
 }: JobMetricsCompactProps) {
-    const totalFailures = atsFailures.reduce((sum, f) => sum + f.fill_failed_count, 0);
-    const timeSince = getTimeSinceLastScrape(lastScrapeTime);
-    const isStale = lastScrapeTime && (new Date().getTime() - lastScrapeTime.getTime()) > 12 * 60 * 60 * 1000;
+    const totalFailures = useMemo(() => atsFailures.reduce((sum, f) => sum + f.fill_failed_count, 0), [atsFailures]);
+    const timeSince = useMemo(() => getTimeSinceLastScrape(lastScrapeTime), [lastScrapeTime]);
+    const isStale = useMemo(() => lastScrapeTime && (new Date().getTime() - lastScrapeTime.getTime()) > 12 * 60 * 60 * 1000, [lastScrapeTime]);
 
     return (
         <>
@@ -89,6 +90,8 @@ export default function JobMetricsCompact({
         </>
     );
 }
+
+export default memo(JobMetricsCompact);
 
 function getTimeSinceLastScrape(lastScrapeTime: Date | null): string | null {
     if (!lastScrapeTime) return null;

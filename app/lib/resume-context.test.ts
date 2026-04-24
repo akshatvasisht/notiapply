@@ -1,16 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { extractResumeContext } from './resume-context';
-import type { Job } from './types';
+import { makeJob } from './test-fixtures';
 
 // Mock dependencies
+const mockQuery = vi.fn();
 vi.mock('./db', () => ({
-    getUserConfig: vi.fn(),
-    db: {
-        query: vi.fn(),
-    },
+    getPool: vi.fn(() => ({ query: mockQuery })),
 }));
-
-import { getUserConfig } from './db';
 
 describe('Resume Context Extraction', () => {
     const mockResumeLatex = `
@@ -26,8 +22,7 @@ Implemented GraphQL API reducing client queries by 40\\%.
 BS Computer Science
     `.trim();
 
-    const mockJob: Job = {
-        id: 1,
+    const mockJob = makeJob({
         title: 'Senior Backend Engineer',
         company: 'Stripe',
         description_raw: `
@@ -40,22 +35,17 @@ Must have experience with:
         `,
         location: 'San Francisco',
         url: 'https://stripe.com/jobs/123',
-        source: 'greenhouse',
+        source: 'ats-greenhouse',
         state: 'discovered',
-        discovered_at: new Date().toISOString(),
         company_role_location_hash: 'hash123',
-    };
+    });
 
     beforeEach(() => {
         vi.clearAllMocks();
-        vi.mocked(getUserConfig).mockResolvedValue({
-            master_resume_id: 1,
-        });
     });
 
     it('extracts job-tailored context when keywords match', async () => {
-        const { db } = await import('./db');
-        vi.mocked(db.query).mockResolvedValue({
+        mockQuery.mockResolvedValue({
             rows: [{ latex_source: mockResumeLatex }],
         });
 
@@ -67,8 +57,7 @@ Must have experience with:
     });
 
     it('extracts general highlights when no job provided', async () => {
-        const { db } = await import('./db');
-        vi.mocked(db.query).mockResolvedValue({
+        mockQuery.mockResolvedValue({
             rows: [{ latex_source: mockResumeLatex }],
         });
 
@@ -78,10 +67,8 @@ Must have experience with:
         expect(context).toContain('5 years');
     });
 
-    it('returns undefined when no resume configured', async () => {
-        vi.mocked(getUserConfig).mockResolvedValue({
-            master_resume_id: undefined,
-        });
+    it('returns undefined when no active resume exists', async () => {
+        mockQuery.mockResolvedValue({ rows: [] });
 
         const context = await extractResumeContext(mockJob);
 
@@ -89,8 +76,7 @@ Must have experience with:
     });
 
     it('returns undefined when resume fetch fails', async () => {
-        const { db } = await import('./db');
-        vi.mocked(db.query).mockResolvedValue({
+        mockQuery.mockResolvedValue({
             rows: [],
         });
 
@@ -106,8 +92,7 @@ Must have experience with:
 Built systems using \\LaTeX{} and \\emph{Python}
         `.trim();
 
-        const { db } = await import('./db');
-        vi.mocked(db.query).mockResolvedValue({
+        mockQuery.mockResolvedValue({
             rows: [{ latex_source: latexWithFormatting }],
         });
 

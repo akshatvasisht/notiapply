@@ -1,0 +1,88 @@
+# notiapply backend stack — n8n orchestrator + Postgres + Python runner
+#
+# Runs the same way on a laptop (all-in-one local dev) or a VPS (split-brain
+# remote backend). What changes between the two is `.env` (mainly
+# N8N_EDITOR_BASE_URL) and how you expose n8n: localhost for local dev, or
+# Tailscale Serve for VPS. Tailscale Serve is a host-side concern and is
+# NOT part of this compose file — see ./README.md.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: notiapply-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [notiapply]
+    # no host port: accessible only inside the compose network
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: notiapply-n8n
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      N8N_HOST: localhost
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      N8N_EDITOR_BASE_URL: ${N8N_EDITOR_BASE_URL}
+      WEBHOOK_URL: ${N8N_EDITOR_BASE_URL}
+      GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-UTC}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      # Secrets forwarded to workflow Execute Command / HTTP Request nodes
+      NOTIAPPLY_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      NOTIAPPLY_WEBHOOK_SECRET: ${NOTIAPPLY_WEBHOOK_SECRET}
+      NOTIAPPLY_RUNNER_URL: http://runner:8080
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    ports:
+      # Bind localhost only; Tailscale Serve fronts this
+      - "127.0.0.1:5678:5678"
+    networks: [notiapply]
+
+  # runner: Python sidecar hosting notiapply scrapers behind a thin HTTP API.
+  # n8n workflows POST to http://runner:8080/run/<module_key> with the
+  # X-Webhook-Secret header. GET /healthz is used for the container healthcheck.
+  runner:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/runner.Dockerfile
+    container_name: notiapply-runner
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      NOTIAPPLY_WEBHOOK_SECRET: ${NOTIAPPLY_WEBHOOK_SECRET}
+    ports:
+      # Host-local only (handy for `curl http://127.0.0.1:8080/healthz`).
+      # n8n reaches the runner via the compose network at http://runner:8080.
+      - "127.0.0.1:8080:8080"
+    networks: [notiapply]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8080/healthz\").read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  n8n_data:
+
+networks:
+  notiapply:
+    driver: bridge

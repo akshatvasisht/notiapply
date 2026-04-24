@@ -23,15 +23,13 @@ def get_api_endpoint(platform: str, slug: str) -> str:
 
 class ATSScraper(BaseScraper):
     def __init__(self, db_url: str):
-        super().__init__(db_url, use_stealth=False)
+        super().__init__(db_url, 'ats-direct', use_stealth=False)
 
     def extract_jobs(self, platform: str, slug: str, company_name: str) -> list:
         url = get_api_endpoint(platform, slug)
         if not url:
             return []
-        # Rate limiting: respectful delay before request
-        self._respectful_delay()
-        resp = self.fetcher.get(url)
+        resp = self.fetch_with_retry(url)
 
         try:
             data = resp.json()
@@ -91,6 +89,35 @@ class ATSScraper(BaseScraper):
         return jobs
 
 
+def _mark_removed_jobs(conn, source: str, company_name: str, current_urls: set):
+    """Mark jobs that disappeared from the ATS API as dead.
+
+    ATS APIs only return currently-open positions. Any previously-discovered
+    job from this source+company that is no longer in the response has been
+    filled or closed — more reliable than HTTP liveness checks.
+    """
+    if not current_urls:
+        return 0
+    cur = conn.cursor()
+    placeholders = ",".join(["%s"] * len(current_urls))
+    cur.execute(
+        f"""
+        UPDATE jobs
+        SET is_live = false, liveness_checked_at = NOW()
+        WHERE source = %s
+          AND company = %s
+          AND is_live = true
+          AND state IN ('discovered', 'filtered', 'queued')
+          AND url NOT IN ({placeholders})
+        """,
+        (source, company_name, *current_urls),
+    )
+    removed = cur.rowcount
+    conn.commit()
+    cur.close()
+    return removed
+
+
 def run(db_url: str, module_config: dict):
     conn = psycopg2.connect(db_url)
     cur = conn.cursor()
@@ -102,29 +129,33 @@ def run(db_url: str, module_config: dict):
     """)
     companies = cur.fetchall()
     cur.close()
-    conn.close()
 
     scraper = ATSScraper(db_url)
     jobs_added = 0
+    jobs_removed = 0
     errors = []
 
     for company_name, platform, slug in companies:
         try:
             scraped = scraper.extract_jobs(platform, slug, company_name)
             jobs_added += scraper.save_jobs(scraped)
+            # Detect filled/closed positions by comparing API response to DB
+            source = f"ats-{platform}"
+            current_urls = {j["url"] for j in scraped if j.get("url")}
+            if current_urls:
+                jobs_removed += _mark_removed_jobs(conn, source, company_name, current_urls)
         except Exception as e:
             errors.append(f"{company_name}/{platform}: {str(e)}")
 
-    return {"jobs_added": jobs_added, "errors": errors}
+    conn.close()
+    return {"jobs_added": jobs_added, "jobs_removed": jobs_removed, "errors": errors}
 
 
 if __name__ == "__main__":
+    from scraper.db_connect import get_db_url
+
     config_str = sys.argv[1] if len(sys.argv) > 1 else "{}"
     payload = json.loads(config_str)
-    
-    if "db_url" not in payload:
-        sys.stderr.write("Error: db_url not provided in JSON payload\\n")
-        sys.exit(1)
-        
-    result = run(payload["db_url"], payload)
+
+    result = run(get_db_url(payload), payload)
     print(json.dumps(result))

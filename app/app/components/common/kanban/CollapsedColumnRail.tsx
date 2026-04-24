@@ -22,8 +22,13 @@ export default function CollapsedColumnRail({
 
     return (
         <div
+            role="button"
+            tabIndex={0}
             onClick={onExpand}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onExpand(); } }}
             title={tooltip}
+            aria-label={tooltip}
+            className="collapsed-rail"
             style={{
                 flex: '0 0 auto',
                 width: 48,
@@ -37,18 +42,12 @@ export default function CollapsedColumnRail({
                 cursor: 'pointer',
                 borderRadius: 8,
                 background: 'transparent',
-                transition: 'background 0.15s ease',
                 userSelect: 'none',
-            }}
-            onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'var(--color-surface-container)';
-            }}
-            onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'transparent';
             }}
         >
             {/* Expand chevron */}
             <svg
+                aria-hidden="true"
                 width="14"
                 height="14"
                 viewBox="0 0 24 24"

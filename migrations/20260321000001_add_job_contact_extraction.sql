@@ -1,4 +1,3 @@
--- migrate:up
 
 -- Add department and source tracking to contacts
 ALTER TABLE contacts
@@ -15,10 +14,3 @@ VALUES
 ('extract-job-contacts', 'Job Posting Contact Extractor', 'Analyzes job descriptions to find embedded recruiter emails, hiring manager names, and LinkedIn profiles. Automatically discovers decision-makers from job posting text.', 'processing', 12, true, true, '12-extract-job-contacts', NULL, '{}')
 ON CONFLICT (key) DO NOTHING;
 
--- migrate:down
-
-DELETE FROM pipeline_modules WHERE key = 'extract-job-contacts';
-
-ALTER TABLE contacts
-    DROP COLUMN IF EXISTS department,
-    DROP COLUMN IF EXISTS source;

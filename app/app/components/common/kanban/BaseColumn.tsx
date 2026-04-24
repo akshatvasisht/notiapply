@@ -1,11 +1,27 @@
 'use client';
 
+import { useState, useCallback } from 'react';
+import CollapsedColumnRail from './CollapsedColumnRail';
+
 interface BaseColumnProps {
     label: string;
     count?: number;
-    children: React.ReactNode;
+    /** Column body content. Optional when renderItems is provided. */
+    children?: React.ReactNode;
     minWidth?: number | string;
     onCollapse?: () => void;
+    /** Enable localStorage-backed collapse with pagination */
+    collapsible?: boolean;
+    /** localStorage key prefix for collapse state (required when collapsible=true) */
+    storageKey?: string;
+    /** Label for collapsed rail tooltip (e.g. "job" or "contact") */
+    itemLabel?: string;
+    /** Max items to show before pagination; 0 = show all (default 20) */
+    initialLimit?: number;
+    /** Total number of items (used for "Show all N" button text) */
+    totalItems?: number;
+    /** Render function for paginated items — called with the current limit */
+    renderItems?: (limit: number, showAll: boolean, onShowAll: () => void) => React.ReactNode;
 }
 
 export default function BaseColumn({
@@ -14,7 +30,49 @@ export default function BaseColumn({
     children,
     minWidth = 240,
     onCollapse,
+    collapsible = false,
+    storageKey,
+    itemLabel = 'item',
+    initialLimit = 20,
+    totalItems,
+    renderItems,
 }: BaseColumnProps) {
+    const effectiveStorageKey = storageKey ?? (collapsible ? `col-collapsed-${label}` : null);
+
+    const [collapsed, setCollapsed] = useState(() => {
+        if (!collapsible) return false;
+        try { return localStorage.getItem(effectiveStorageKey!) !== 'false'; } catch { return true; }
+    });
+
+    const [showAll, setShowAll] = useState(false);
+
+    const handleCollapse = useCallback((val: boolean) => {
+        setCollapsed(val);
+        try { if (effectiveStorageKey) localStorage.setItem(effectiveStorageKey, String(val)); } catch {}
+    }, [effectiveStorageKey]);
+
+    const handleShowAll = useCallback(() => setShowAll(true), []);
+
+    // Determine the effective onCollapse handler: explicit prop takes priority,
+    // then built-in collapsible behavior.
+    const effectiveOnCollapse = onCollapse ?? (collapsible ? () => handleCollapse(true) : undefined);
+
+    if (collapsed && collapsible) {
+        return (
+            <CollapsedColumnRail
+                label={label}
+                count={count ?? totalItems ?? 0}
+                itemLabel={itemLabel}
+                onExpand={() => handleCollapse(false)}
+            />
+        );
+    }
+
+    // Determine body content: use renderItems for pagination, otherwise children
+    const bodyContent = renderItems
+        ? renderItems(initialLimit, showAll, handleShowAll)
+        : children;
+
     return (
         <div style={{
             flex: 1,
@@ -24,26 +82,20 @@ export default function BaseColumn({
             height: '100%',
         }}>
             <div
-                onClick={onCollapse}
+                role={effectiveOnCollapse ? 'button' : undefined}
+                tabIndex={effectiveOnCollapse ? 0 : undefined}
+                aria-label={effectiveOnCollapse ? `Collapse ${label} column` : undefined}
+                onClick={effectiveOnCollapse}
+                onKeyDown={effectiveOnCollapse ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); effectiveOnCollapse(); } } : undefined}
+                className={effectiveOnCollapse ? 'base-column-header' : undefined}
                 style={{
                     display: 'flex',
                     alignItems: 'center',
                     gap: 8,
                     padding: '12px 8px',
                     marginBottom: 4,
-                    cursor: onCollapse ? 'pointer' : 'default',
+                    cursor: effectiveOnCollapse ? 'pointer' : 'default',
                     borderRadius: 8,
-                    transition: 'background 0.15s ease',
-                }}
-                onMouseEnter={(e) => {
-                    if (onCollapse) {
-                        e.currentTarget.style.background = 'var(--color-surface-container)';
-                    }
-                }}
-                onMouseLeave={(e) => {
-                    if (onCollapse) {
-                        e.currentTarget.style.background = 'transparent';
-                    }
                 }}
             >
                 <span style={{
@@ -71,7 +123,7 @@ export default function BaseColumn({
                         {count}
                     </span>
                 )}
-                {onCollapse && (
+                {effectiveOnCollapse && (
                     <div
                         style={{
                             display: 'flex',
@@ -105,8 +157,32 @@ export default function BaseColumn({
                 paddingRight: 6,
                 paddingBottom: 20,
             }}>
-                {children}
+                {bodyContent}
             </div>
         </div>
+    );
+}
+
+/** Reusable "Show all N items" button with standard board styling */
+export function ShowMoreButton({ total, itemLabel, onClick }: { total: number; itemLabel: string; onClick: () => void }) {
+    return (
+        <button
+            className="show-more-btn"
+            onClick={onClick}
+            style={{
+                width: '100%',
+                padding: '12px',
+                marginTop: 8,
+                background: 'var(--color-surface-container-high)',
+                border: '1px solid var(--color-outline-variant)',
+                borderRadius: 8,
+                color: 'var(--color-primary)',
+                fontSize: 13,
+                fontWeight: 500,
+                cursor: 'pointer',
+            }}
+        >
+            Show all {total} {itemLabel}{total !== 1 ? 's' : ''}
+        </button>
     );
 }

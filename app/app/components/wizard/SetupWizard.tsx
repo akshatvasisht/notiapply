@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { updateUserConfig, uploadMasterResume, uploadCoverLetterTemplate } from '@/lib/db';
+import { uploadMasterResume, uploadCoverLetterTemplate, hasDatabase } from '@/lib/db';
+import { updateSecureConfig } from '@/lib/secure-config';
 import type { UserConfig } from '@/lib/types';
+import { logger } from '@/lib/logger';
 
 interface WizardProps {
     onComplete: () => void;
@@ -29,12 +31,12 @@ export default function SetupWizard({ onComplete }: WizardProps) {
     const handleFinish = async () => {
         if (resumeTeX) await uploadMasterResume(resumeTeX);
         if (coverTeX) await uploadCoverLetterTemplate(coverTeX);
-        await updateUserConfig({ ...config, setup_complete: true });
+        await updateSecureConfig({ ...config, setup_complete: true });
         onComplete();
     };
 
     // DEV ONLY: Skip wizard with mock data
-    const handleDevSkip = async () => {
+    const handleDevSkip = () => {
         const mockConfig: UserConfig = {
             llm_endpoint: 'https://api.example.com/v1',
             llm_api_key: 'mock-api-key',
@@ -46,10 +48,11 @@ export default function SetupWizard({ onComplete }: WizardProps) {
             filter: { exclude_keywords: ['senior'], seniority: ['entry'], new_grad_only: false },
             setup_complete: true,
         };
-        try {
-            await updateUserConfig(mockConfig);
-        } catch {
-            console.warn('[DEV] Skipping wizard - DB not available');
+        // Fire-and-forget — skip DB write entirely in demo mode (no DATABASE_URL).
+        if (hasDatabase()) {
+            updateSecureConfig(mockConfig).catch(err =>
+                logger.warn('DB unavailable, skipping wizard config save', 'SetupWizard', err)
+            );
         }
         onComplete();
     };

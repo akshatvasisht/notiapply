@@ -35,61 +35,83 @@ def run(db_url: str, module_config: dict):
     # at the volumes a single applicant generates.
     sources = module_config.get("sources", ["linkedin", "indeed", "glassdoor", "zip_recruiter"])
     results_per_source = module_config.get("results_per_source", 50)
+    hours_old = module_config.get("hours_old", 72)  # Only fetch postings from last 72 hours
 
     jobs_added = 0
     errors = []
 
-    for term in search_terms:
-        for loc in locations:
-            try:
-                results = scrape_jobs(
-                    site_name=sources,
-                    search_term=term,
-                    location=loc,
-                    results_wanted=results_per_source,
-                )
+    # Start run tracking so monitoring page shows JobSpy history
+    cur.execute(
+        "INSERT INTO scraper_runs (scraper_key, status, version) VALUES (%s, 'running', 'unknown') RETURNING id",
+        ('jobspy',)
+    )
+    run_id = cur.fetchone()[0]
+    conn.commit()
 
-                for _, row in results.iterrows():
-                    source_name = f"jobspy-{row.get('site', 'unknown')}"
-                    company = str(row.get("company", "Unknown"))
-                    title = str(row.get("title", "Unknown"))
-                    job_location = str(row.get("location", loc))
-                    url = str(row.get("job_url", ""))
-                    description = str(row.get("description", ""))
-                    salary_min = int(row["min_amount"]) if row.get("min_amount") else None
-                    salary_max = int(row["max_amount"]) if row.get("max_amount") else None
-                    h = dedup_hash(company, title, job_location)
+    try:
+        for term in search_terms:
+            for loc in locations:
+                try:
+                    results = scrape_jobs(
+                        site_name=sources,
+                        search_term=term,
+                        location=loc,
+                        results_wanted=results_per_source,
+                        hours_old=hours_old,
+                    )
 
-                    cur.execute("""
-                        INSERT INTO jobs (source, title, company, location, url,
-                                         description_raw, salary_min, salary_max,
-                                         company_role_location_hash)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (company_role_location_hash) DO NOTHING
-                    """, (source_name, title, company, job_location, url,
-                          description, salary_min, salary_max, h))
+                    for _, row in results.iterrows():
+                        source_name = f"jobspy-{row.get('site', 'unknown')}"
+                        company = str(row.get("company", "Unknown"))
+                        title = str(row.get("title", "Unknown"))
+                        job_location = str(row.get("location", loc))
+                        url = str(row.get("job_url", ""))
+                        description = str(row.get("description", ""))
+                        try:
+                            salary_min = int(row["min_amount"]) if row.get("min_amount") else None
+                        except (ValueError, TypeError):
+                            salary_min = None
+                        try:
+                            salary_max = int(row["max_amount"]) if row.get("max_amount") else None
+                        except (ValueError, TypeError):
+                            salary_max = None
+                        h = dedup_hash(company, title, job_location)
 
-                    if cur.rowcount > 0:
-                        jobs_added += 1
+                        cur.execute("""
+                            INSERT INTO jobs (source, title, company, location, url,
+                                             description_raw, salary_min, salary_max,
+                                             company_role_location_hash)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            ON CONFLICT (company_role_location_hash) DO NOTHING
+                        """, (source_name, title, company, job_location, url,
+                              description, salary_min, salary_max, h))
 
-                conn.commit()
-            except Exception as e:
-                errors.append(f"{term}/{loc}: {str(e)}")
-                conn.rollback()
+                        if cur.rowcount > 0:
+                            jobs_added += 1
 
-    cur.close()
-    conn.close()
+                    conn.commit()
+                except Exception as e:
+                    errors.append(f"{term}/{loc}: {str(e)}")
+                    conn.rollback()
+    finally:
+        # Always record completion — even if an unhandled exception propagates
+        final_status = 'failed' if errors else 'success'
+        cur.execute(
+            "UPDATE scraper_runs SET completed_at = NOW(), jobs_found = %s, status = %s WHERE id = %s",
+            (jobs_added, final_status, run_id)
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
 
     return {"jobs_added": jobs_added, "errors": errors}
 
 
 if __name__ == "__main__":
+    from scraper.db_connect import get_db_url
+
     config_str = sys.argv[1] if len(sys.argv) > 1 else "{}"
     payload = json.loads(config_str)
-    
-    if "db_url" not in payload:
-        sys.stderr.write("Error: db_url not provided in JSON payload\\n")
-        sys.exit(1)
-        
-    result = run(payload["db_url"], payload)
+
+    result = run(get_db_url(payload), payload)
     print(json.dumps(result))

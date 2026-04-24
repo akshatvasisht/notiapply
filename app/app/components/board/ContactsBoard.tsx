@@ -1,11 +1,13 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import dynamic from 'next/dynamic';
-import { getContacts, updateContactState, getJobs } from '@/lib/db';
-import type { Contact, ContactBoardColumn, Job } from '@/lib/types';
+import { updateContactState, scheduleBatchEmails } from '@/lib/db';
+import { getSecureConfig } from '@/lib/secure-config';
+import { useJobs, useContacts, useEmailQueue, useCardSelection, useBoardKeyboard } from '@/lib/hooks';
+import type { Contact, ContactBoardColumn } from '@/lib/types';
 import { CONTACT_COLUMN_STATES, CONTACT_COLUMN_LABELS } from '@/lib/types';
-import { MOCK_CONTACTS, MOCK_JOBS } from '@/lib/mock-data';
+import { MOCK_CONTACTS } from '@/lib/mock-data';
 import { generateBatchMessages } from '@/lib/llm';
 import ContactColumn from './ContactColumn';
 import ContactMetricsCompact from './metrics/ContactMetricsCompact';
@@ -20,6 +22,8 @@ const ContactDetail = dynamic(() => import('./ContactDetail'), {
     ssr: false
 });
 
+
+const CONTACT_COLUMNS: ContactBoardColumn[] = ['identified', 'drafted', 'contacted', 'replied', 'rejected'];
 
 export interface ContactsBoardProps {
     onOpenSettings?: () => void;
@@ -36,47 +40,39 @@ export default function ContactsBoard({
     onMetricsChange,
     onActionsChange
 }: ContactsBoardProps) {
-    const [contacts, setContacts] = useState<Contact[]>([]);
-    const [jobs, setJobs] = useState<Job[]>([]);
+    const { data: contactsData, refresh: refreshContacts, loading: contactsLoading } = useContacts();
+    const { data: jobsData, refresh: refreshJobs } = useJobs();
+
+    // Local contacts state for optimistic updates (draft messages, drag-drop)
+    const [localContacts, setLocalContacts] = useState<Contact[] | null>(null);
+    const contacts = localContacts ?? contactsData ?? [];
+    const jobs = jobsData ?? [];
+
+    // Sync hook data into local state when it changes
+    useEffect(() => {
+        if (contactsData) setLocalContacts(null);
+    }, [contactsData]);
+
     const [focusedContact, setFocusedContact] = useState<Contact | null>(null);
-    const [loading, setLoading] = useState(true);
+    const loading = contactsLoading;
     const [_internalSearch, _setInternalSearch] = useState('');
     const searchQuery = externalSearch ?? _internalSearch;
     const setSearchQuery = onExternalSearchChange ?? _setInternalSearch;
-    const [selectedContactIds, setSelectedContactIds] = useState<Set<number>>(new Set());
-    const [useMockData, setUseMockData] = useState(false);
+    const { selectedIds: selectedContactIds, handleCardClick: handleCardClickRaw, selectAll: selectAllContactIds, clearSelection: clearContactSelection, setSelectedIds: setSelectedContactIds } = useCardSelection<Contact>();
+    const useMockData = contactsData === MOCK_CONTACTS;
     const [draggedContactId, setDraggedContactId] = useState<number | null>(null);
+    const draggedContactIdRef = useRef<number | null>(null);
     const [dragOverColumn, setDragOverColumn] = useState<ContactBoardColumn | null>(null);
     const [toastMessage, setToastMessage] = useState<string | null>(null);
     const [toastType, setToastType] = useState<'success' | 'error'>('success');
     const [draftingMessages, setDraftingMessages] = useState(false);
 
     const refresh = useCallback(() => {
-        Promise.all([getContacts(), getJobs()])
-            .then(([contactData, jobData]) => {
-                if (contactData.length === 0) {
-                    setContacts(MOCK_CONTACTS);
-                    setJobs(MOCK_JOBS);
-                    setUseMockData(true);
-                } else {
-                    setContacts(contactData);
-                    setJobs(jobData);
-                    setUseMockData(false);
-                }
-            })
-            .catch(() => {
-                setContacts(MOCK_CONTACTS);
-                setJobs(MOCK_JOBS);
-                setUseMockData(true);
-            })
-            .finally(() => setLoading(false));
-    }, []);
+        refreshContacts();
+        refreshJobs();
+    }, [refreshContacts, refreshJobs]);
 
-    useEffect(() => {
-        refresh();
-    }, [refresh]);
-
-    const filtered = contacts.filter(c => {
+    const filtered = useMemo(() => contacts.filter(c => {
         if (!searchQuery) return true;
         const q = searchQuery.toLowerCase();
         return (
@@ -84,147 +80,170 @@ export default function ContactsBoard({
             (c.role ?? '').toLowerCase().includes(q) ||
             c.company_name.toLowerCase().includes(q)
         );
-    });
+    }), [contacts, searchQuery]);
 
-    // Keyboard shortcuts
-    useEffect(() => {
-        const handler = (e: KeyboardEvent) => {
-            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
-                return;
-            }
+    // Keyboard: Escape cascade + Ctrl+A select-all
+    useBoardKeyboard(
+        useMemo(() => [
+            { active: selectedContactIds.size > 0, dismiss: clearContactSelection },
+            { active: !!focusedContact, dismiss: () => setFocusedContact(null) },
+        ], [selectedContactIds, focusedContact, clearContactSelection]),
+        useCallback(() => filtered.map(c => c.id), [filtered]),
+        selectAllContactIds,
+    );
 
-            if (e.key === 'Escape') {
-                if (selectedContactIds.size > 0) setSelectedContactIds(new Set());
-                else if (focusedContact) setFocusedContact(null);
-            } else if (e.key === 'a' && e.ctrlKey) {
-                e.preventDefault();
-                const allIds = new Set(filtered.map(c => c.id));
-                setSelectedContactIds(allIds);
-            }
-        };
-        window.addEventListener('keydown', handler);
-        return () => window.removeEventListener('keydown', handler);
-    }, [focusedContact, selectedContactIds, filtered]);
-
-    const contactsByColumn = (column: ContactBoardColumn) =>
-        filtered.filter(c => CONTACT_COLUMN_STATES[column].includes(c.state));
-
-    const identifiedCount = contactsByColumn('identified').length;
-
-    // Push metrics and actions to header
-    useEffect(() => {
-        if (onMetricsChange) {
-            onMetricsChange(
-                <ContactMetricsCompact contacts={contacts} />
-            );
+    const contactsByColumnMap = useMemo(() => {
+        const cols: ContactBoardColumn[] = ['identified', 'drafted', 'contacted', 'replied', 'rejected'];
+        const map = new Map<ContactBoardColumn, Contact[]>();
+        for (const col of cols) {
+            map.set(col, filtered.filter(c => CONTACT_COLUMN_STATES[col].includes(c.state)));
         }
-        if (onActionsChange) {
-            onActionsChange(
-                <ContactActions
-                    identifiedCount={identifiedCount}
-                    onDraftMessages={async () => {
-                        setDraftingMessages(true);
-                        try {
-                            const identifiedContacts = contacts.filter(c => c.state === 'identified');
+        return map;
+    }, [filtered]);
 
-                            const messages = await generateBatchMessages(
-                                identifiedContacts,
-                                (current, total) => {
-                                    setToastMessage(`Generating messages... ${current}/${total}`);
-                                    setToastType('success');
-                                }
-                            );
+    const contactsByColumn = (column: ContactBoardColumn) => contactsByColumnMap.get(column) ?? [];
 
-                            // Update contacts with drafted messages
-                            const updatedContacts = contacts.map(c => {
-                                const message = messages.get(c.id);
-                                if (message) {
-                                    return { ...c, drafted_message: message, state: 'drafted' as Contact['state'] };
-                                }
-                                return c;
-                            });
+    const identifiedCount = contactsByColumnMap.get('identified')?.length ?? 0;
+    const draftedWithEmailCount = useMemo(
+        () => contacts.filter(c => c.state === 'drafted' && c.email && c.drafted_message).length,
+        [contacts]
+    );
+    const emailQueue = useEmailQueue();
 
-                            setContacts(updatedContacts);
-                            setToastMessage(`✓ Generated ${messages.size} draft messages`);
-                            setToastType('success');
-
-                            setTimeout(() => setToastMessage(null), 3000);
-                        } catch (error) {
-                            setToastMessage(`Error: ${error instanceof Error ? error.message : 'Failed to generate messages'}`);
-                            setToastType('error');
-                            setTimeout(() => setToastMessage(null), 5000);
-                        } finally {
-                            setDraftingMessages(false);
-                        }
-                    }}
-                    onExportCSV={() => {
-                        const csv = generateCSV(contacts);
-                        downloadCSV(csv, 'contacts.csv');
-                    }}
-                />
-            );
+    const handleSendEmails = useCallback(async () => {
+        const draftedContacts = contacts.filter(
+            c => c.state === 'drafted' && c.email && c.drafted_message
+        );
+        if (draftedContacts.length === 0) return;
+        try {
+            const config = await getSecureConfig();
+            const delayMinutes = config.smtp_min_delay_minutes ?? 10;
+            const contactIds = draftedContacts.map(c => c.id);
+            await scheduleBatchEmails(contactIds, new Date(), delayMinutes);
+            const now = new Date();
+            const updatedContacts = contacts.map(c => {
+                const idx = contactIds.indexOf(c.id);
+                if (idx === -1) return c;
+                const sendAt = new Date(now.getTime() + idx * delayMinutes * 60_000);
+                return { ...c, send_at: sendAt.toISOString() };
+            });
+            setLocalContacts(updatedContacts);
+            setToastMessage(`✓ Scheduled ${draftedContacts.length} emails`);
+            setToastType('success');
+            setTimeout(() => setToastMessage(null), 3000);
+        } catch (err) {
+            setToastMessage(`Error scheduling emails: ${err instanceof Error ? err.message : 'Unknown error'}`);
+            setToastType('error');
+            setTimeout(() => setToastMessage(null), 5000);
         }
-    }, [contacts, identifiedCount, onMetricsChange, onActionsChange]);
+    }, [contacts]);
 
-    const handleStateChange = async (contactId: number, newState: string) => {
+    const handleDraftMessages = useCallback(async () => {
+        setDraftingMessages(true);
+        try {
+            const identifiedContacts = contacts.filter(c => c.state === 'identified');
+            const messages = await generateBatchMessages(
+                identifiedContacts,
+                (current, total) => {
+                    setToastMessage(`Generating messages... ${current}/${total}`);
+                    setToastType('success');
+                }
+            );
+            const updatedContacts = contacts.map(c => {
+                const message = messages.get(c.id);
+                if (message) {
+                    return { ...c, drafted_message: message, state: 'drafted' as Contact['state'] };
+                }
+                return c;
+            });
+            setLocalContacts(updatedContacts);
+            setToastMessage(`✓ Generated ${messages.size} draft messages`);
+            setToastType('success');
+            setTimeout(() => setToastMessage(null), 3000);
+        } catch (error) {
+            setToastMessage(`Error: ${error instanceof Error ? error.message : 'Failed to generate messages'}`);
+            setToastType('error');
+            setTimeout(() => setToastMessage(null), 5000);
+        } finally {
+            setDraftingMessages(false);
+        }
+    }, [contacts]);
+
+    const handleExportCSV = useCallback(() => {
+        const csv = generateCSV(contacts);
+        downloadCSV(csv, 'contacts.csv');
+    }, [contacts]);
+
+    // Memoize header slot content — only reconstructs when relevant data changes
+    const metricsNode = useMemo(() => (
+        <ContactMetricsCompact contacts={contacts} />
+    ), [contacts]);
+
+    const actionsNode = useMemo(() => (
+        <ContactActions
+            identifiedCount={identifiedCount}
+            draftedWithEmailCount={draftedWithEmailCount}
+            draftingMessages={draftingMessages}
+            onSendEmails={handleSendEmails}
+            onDraftMessages={handleDraftMessages}
+            onExportCSV={handleExportCSV}
+        />
+    ), [identifiedCount, draftedWithEmailCount, draftingMessages, handleSendEmails, handleDraftMessages, handleExportCSV]);
+
+    useEffect(() => { onMetricsChange?.(metricsNode); }, [metricsNode, onMetricsChange]);
+    useEffect(() => { onActionsChange?.(actionsNode); }, [actionsNode, onActionsChange]);
+
+    const handleStateChange = useCallback(async (contactId: number, newState: string) => {
         await updateContactState(contactId, newState);
         refresh();
-    };
+    }, [refresh]);
 
-    const handleCardClick = (contact: Contact, e: React.MouseEvent) => {
-        if (e.ctrlKey) {
-            const newSelection = new Set(selectedContactIds);
-            if (newSelection.has(contact.id)) {
-                newSelection.delete(contact.id);
-            } else {
-                newSelection.add(contact.id);
-            }
-            setSelectedContactIds(newSelection);
-        } else if (selectedContactIds.size > 0) {
-            setSelectedContactIds(new Set());
-            setFocusedContact(contact);
-        } else {
-            setFocusedContact(contact);
-        }
-    };
+    const handleCardClick = useCallback((contact: Contact, e: React.MouseEvent) => {
+        handleCardClickRaw(contact, e, setFocusedContact);
+    }, [handleCardClickRaw]);
 
     // ── Drag-and-Drop handlers ──────────────────────────────────────────────
-    const handleDragStart = (_e: React.DragEvent, contact: Contact) => {
-        setDraggedContactId(contact.id);
-    };
+    const handleDragStart = useCallback((e: React.DragEvent, contactId: number) => {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', String(contactId));
+        draggedContactIdRef.current = contactId;
+        setDraggedContactId(contactId);
+    }, []);
 
-    const handleDragOver = (e: React.DragEvent, col: ContactBoardColumn) => {
+    const handleDragOver = useCallback((e: React.DragEvent, col: ContactBoardColumn) => {
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
         setDragOverColumn(col);
-    };
+    }, []);
 
-    const handleDrop = async (e: React.DragEvent, col: ContactBoardColumn) => {
+    const handleDrop = useCallback(async (e: React.DragEvent, col: ContactBoardColumn) => {
         e.preventDefault();
         setDragOverColumn(null);
-        if (draggedContactId === null) return;
 
-        const contact = contacts.find(c => c.id === draggedContactId);
+        // Read from ref — immune to stale closures
+        const dragId = draggedContactIdRef.current;
+        if (dragId === null) return;
+
+        const contact = contacts.find(c => c.id === dragId);
         if (!contact) return;
 
-        // Map column → target state (use first state in the column's states list)
         const targetState = CONTACT_COLUMN_STATES[col][0];
         if (contact.state === targetState) return;
 
-        // Optimistic local update for snappy UI
-        setContacts(prev => prev.map(c =>
-            c.id === draggedContactId ? { ...c, state: targetState as Contact['state'] } : c
+        setLocalContacts(contacts.map(c =>
+            c.id === dragId ? { ...c, state: targetState as Contact['state'] } : c
         ));
+        draggedContactIdRef.current = null;
         setDraggedContactId(null);
 
-        // Persist
-        await handleStateChange(draggedContactId, targetState);
-    };
+        await handleStateChange(dragId, targetState);
+    }, [contacts, handleStateChange]);
 
-    const handleDragEnd = () => {
+    const handleDragEnd = useCallback(() => {
+        draggedContactIdRef.current = null;
         setDraggedContactId(null);
         setDragOverColumn(null);
-    };
+    }, []);
 
     if (loading) {
         return (
@@ -234,7 +253,6 @@ export default function ContactsBoard({
         );
     }
 
-    const columns: ContactBoardColumn[] = ['identified', 'drafted', 'contacted', 'replied', 'rejected'];
 
     const mockDataBanner = useMockData ? (
         <div style={{
@@ -262,6 +280,7 @@ export default function ContactsBoard({
             {mockDataBanner}
             <ContactReminders
                 contacts={contacts}
+                hidden={!!focusedContact}
                 onFilterOverdue={() => {
                     // Filter to show only overdue contacts
                     const today = new Date();
@@ -281,14 +300,14 @@ export default function ContactsBoard({
                 display: 'flex', flex: 1, gap: 8, padding: '8px 12px',
                 background: 'var(--color-surface-raised)', overflowX: 'auto',
             }}>
-                {columns.map(col => (
+                {CONTACT_COLUMNS.map(col => (
                     <ContactColumn
                         key={col}
                         label={CONTACT_COLUMN_LABELS[col]}
                         contacts={contactsByColumn(col)}
                         selectedIds={selectedContactIds}
                         onCardClick={handleCardClick}
-                        onDragStart={(contactId) => setDraggedContactId(contactId)}
+                        onDragStart={handleDragStart}
                         onDragOver={(e) => handleDragOver(e, col)}
                         onDrop={(e) => handleDrop(e, col)}
                         onDragEnd={handleDragEnd}
@@ -299,7 +318,7 @@ export default function ContactsBoard({
             </div>
 
             {focusedContact && (
-                <Modal onClose={() => { setFocusedContact(null); refresh(); }}>
+                <Modal title={`${focusedContact.name} — ${focusedContact.company_name}`} onClose={() => { setFocusedContact(null); refresh(); }}>
                     <ContactDetail
                         contact={focusedContact}
                         jobs={jobs}
@@ -319,6 +338,33 @@ export default function ContactsBoard({
                     type={toastType}
                     onDismiss={() => setToastMessage(null)}
                 />
+            )}
+
+            {emailQueue.pending > 0 && (
+                <div role="status" aria-live="polite" style={{
+                    position: 'fixed',
+                    bottom: 'calc(24px + env(safe-area-inset-bottom, 0px))',
+                    right: 'max(24px, env(safe-area-inset-right, 24px))',
+                    background: 'var(--color-surface-container-high)',
+                    borderRadius: 8,
+                    padding: '8px 14px',
+                    fontSize: 12,
+                    color: 'var(--color-on-surface)',
+                    boxShadow: 'var(--elevation-2)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    zIndex: 100,
+                }}>
+                    <span style={{
+                        display: 'inline-block',
+                        width: 8, height: 8,
+                        borderRadius: '50%',
+                        background: 'var(--color-primary)',
+                        animation: emailQueue.active ? 'pulse 1s infinite' : 'none',
+                    }} />
+                    {emailQueue.active ? 'Sending email…' : `${emailQueue.pending} email${emailQueue.pending > 1 ? 's' : ''} queued`}
+                </div>
             )}
         </div>
     );
@@ -355,10 +401,14 @@ function downloadCSV(csv: string, filename: string) {
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', filename);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    try {
+        link.setAttribute('href', url);
+        link.setAttribute('download', filename);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    } finally {
+        URL.revokeObjectURL(url);
+    }
 }

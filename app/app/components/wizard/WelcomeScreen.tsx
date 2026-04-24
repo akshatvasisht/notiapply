@@ -94,6 +94,7 @@ export default function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
 
             {/* CTA Button */}
             <button
+                className="welcome-cta-btn"
                 onClick={handleContinue}
                 style={{
                     padding: '14px 32px',
@@ -106,22 +107,7 @@ export default function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
                     borderRadius: 'var(--radius-pill)',
                     cursor: 'pointer',
                     boxShadow: 'var(--elevation-1)',
-                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                     animation: 'fadeUp 0.6s cubic-bezier(0.4, 0, 0.2, 1) 0.4s backwards',
-                }}
-                onMouseEnter={(e) => {
-                    e.currentTarget.style.boxShadow = 'var(--elevation-2)';
-                    e.currentTarget.style.transform = 'translateY(-2px) scale(1.02)';
-                }}
-                onMouseLeave={(e) => {
-                    e.currentTarget.style.boxShadow = 'var(--elevation-1)';
-                    e.currentTarget.style.transform = 'translateY(0) scale(1)';
-                }}
-                onMouseDown={(e) => {
-                    e.currentTarget.style.transform = 'translateY(0) scale(0.98)';
-                }}
-                onMouseUp={(e) => {
-                    e.currentTarget.style.transform = 'translateY(-2px) scale(1.02)';
                 }}
             >
                 Get Started

@@ -1,5 +1,6 @@
 'use client';
 
+import { memo, useMemo } from 'react';
 import MetricChip from '@/app/components/common/MetricChip';
 import type { Contact } from '@/lib/types';
 
@@ -12,39 +13,61 @@ export interface ContactMetricsCompactProps {
  *
  * Design: Only show icons when metrics are exceptional or poor
  */
-export default function ContactMetricsCompact({ contacts }: ContactMetricsCompactProps) {
-    const stats = calculateMetrics(contacts);
+function ContactMetricsCompact({ contacts }: ContactMetricsCompactProps) {
+    // Single pass over contacts — replaces 6+ separate filter calls per render
+    const stats = useMemo(() => {
+        let contacted = 0, replied = 0, identified = 0, drafted = 0, active = 0, withLinkedIn = 0;
+        for (const c of contacts) {
+            const s = c.state;
+            if (s === 'contacted' || s === 'replied' || s === 'interviewing') contacted++;
+            if (s === 'replied' || s === 'interviewing') { replied++; active++; }
+            if (s !== 'rejected') identified++;
+            if (s === 'drafted' || s === 'contacted' || s === 'replied' || s === 'interviewing') drafted++;
+            if (c.linkedin_url) withLinkedIn++;
+        }
+        return {
+            contacted,
+            replied,
+            identified,
+            drafted,
+            active,
+            withLinkedIn,
+            responseRate: contacted > 0 ? Math.round((replied / contacted) * 100) : 0,
+            draftCompletion: identified > 0 ? Math.round((drafted / identified) * 100) : 0,
+            linkedinCoverage: contacts.length > 0 ? Math.round((withLinkedIn / contacts.length) * 100) : 0,
+        };
+    }, [contacts]);
 
     return (
         <>
             {/* Response Rate - show icon if exceptional (>30%) or poor (<15%) */}
-            {stats.responseRate >= 0 && getContactedCount(contacts) > 0 && (
+            {stats.contacted > 0 && (
                 <MetricChip
                     value={`${stats.responseRate}%`}
                     label="Response Rate"
-                    tooltip={`${getRepliedCount(contacts)} of ${getContactedCount(contacts)} contacted leads replied. Industry avg: 15-25%.`}
+                    tooltip={`${stats.replied} of ${stats.contacted} contacted leads replied. Industry avg: 15-25%.`}
                     variant={stats.responseRate >= 30 ? 'success' : stats.responseRate < 15 ? 'warning' : 'default'}
                     showIcon={stats.responseRate >= 30 || stats.responseRate < 15}
                 />
             )}
 
             {/* Active Conversations - only show if > 0 */}
-            {stats.activeConversations > 0 && (
+            {stats.active > 0 && (
                 <MetricChip
-                    value={stats.activeConversations}
+                    value={stats.active}
                     label="Active Leads"
-                    tooltip={`${stats.activeConversations} contact${stats.activeConversations > 1 ? 's' : ''} in active conversation or interviewing.`}
+                    tooltip={`${stats.active} contact${stats.active > 1 ? 's' : ''} in active conversation or interviewing.`}
                     variant="success"
                     showIcon={true}
                 />
             )}
 
             {/* Draft Completion */}
-            {stats.draftCompletion >= 0 && getIdentifiedCount(contacts) > 0 && (
+            {stats.identified > 0 && (
                 <MetricChip
                     value={`${stats.draftCompletion}%`}
                     label="Drafts Ready"
-                    tooltip={`${getDraftedCount(contacts)} of ${getIdentifiedCount(contacts)} identified contacts have drafted messages.`}
+                    tooltip={`${stats.drafted} of ${stats.identified} identified contacts have drafted messages.`}
                     variant={stats.draftCompletion >= 80 ? 'success' : stats.draftCompletion < 50 ? 'warning' : 'default'}
                     showIcon={stats.draftCompletion < 50}
                 />
@@ -55,7 +78,7 @@ export default function ContactMetricsCompact({ contacts }: ContactMetricsCompac
                 <MetricChip
                     value={`${stats.linkedinCoverage}%`}
                     label="LinkedIn"
-                    tooltip={`${getLinkedInCount(contacts)} of ${contacts.length} contacts have LinkedIn profiles for networking.`}
+                    tooltip={`${stats.withLinkedIn} of ${contacts.length} contacts have LinkedIn profiles for networking.`}
                     variant={stats.linkedinCoverage >= 80 ? 'success' : stats.linkedinCoverage < 50 ? 'warning' : 'default'}
                     showIcon={stats.linkedinCoverage < 50}
                 />
@@ -64,49 +87,4 @@ export default function ContactMetricsCompact({ contacts }: ContactMetricsCompac
     );
 }
 
-// ─── Helper Functions ──────────────────────────────────────────────────────
-
-interface MetricStats {
-    responseRate: number;
-    draftCompletion: number;
-    activeConversations: number;
-    linkedinCoverage: number;
-}
-
-function calculateMetrics(contacts: Contact[]): MetricStats {
-    const contacted = getContactedCount(contacts);
-    const replied = getRepliedCount(contacts);
-    const identified = getIdentifiedCount(contacts);
-    const drafted = getDraftedCount(contacts);
-    const active = contacts.filter((c) => c.state === 'replied' || c.state === 'interviewing').length;
-    const withLinkedIn = getLinkedInCount(contacts);
-
-    return {
-        responseRate: contacted > 0 ? Math.round((replied / contacted) * 100) : 0,
-        draftCompletion: identified > 0 ? Math.round((drafted / identified) * 100) : 0,
-        activeConversations: active,
-        linkedinCoverage: contacts.length > 0 ? Math.round((withLinkedIn / contacts.length) * 100) : 0,
-    };
-}
-
-function getContactedCount(contacts: Contact[]): number {
-    return contacts.filter((c) => c.state === 'contacted' || c.state === 'replied' || c.state === 'interviewing').length;
-}
-
-function getRepliedCount(contacts: Contact[]): number {
-    return contacts.filter((c) => c.state === 'replied' || c.state === 'interviewing').length;
-}
-
-function getIdentifiedCount(contacts: Contact[]): number {
-    return contacts.filter((c) => c.state !== 'rejected').length;
-}
-
-function getDraftedCount(contacts: Contact[]): number {
-    return contacts.filter(
-        (c) => c.state === 'drafted' || c.state === 'contacted' || c.state === 'replied' || c.state === 'interviewing'
-    ).length;
-}
-
-function getLinkedInCount(contacts: Contact[]): number {
-    return contacts.filter((c) => c.linkedin_url).length;
-}
+export default memo(ContactMetricsCompact);

@@ -42,14 +42,12 @@ export async function startFillSession(
 
     const chromiumPath = await getEnv('CHROMIUM_EXECUTABLE_PATH');
     const simplifyPath = await getEnv('SIMPLIFY_EXTENSION_PATH');
-    const dbUrl = await getEnv('DATABASE_URL');
 
     const sidecar = tauriCommand!.sidecar('binaries/node', [
         'sidecar/fill.js',
         '--session-id', sessionId,
         '--chromium-path', chromiumPath,
         '--simplify-path', simplifyPath,
-        '--db-url', dbUrl,
     ]);
 
     sidecar.stdout.on('data', (line: string) => {
@@ -73,7 +71,11 @@ export async function startFillSession(
     return sessionId;
 }
 
-export async function triggerPipelineRun(webhookUrl: string, webhookSecret: string): Promise<boolean> {
+export async function triggerPipelineRun(
+    webhookUrl: string,
+    webhookSecret: string,
+    payload?: Record<string, unknown>
+): Promise<boolean> {
     // Preflight health check
     try {
         const healthUrl = webhookUrl.replace('/webhook/', '/healthz');
@@ -84,7 +86,11 @@ export async function triggerPipelineRun(webhookUrl: string, webhookSecret: stri
 
     await fetch(webhookUrl, {
         method: 'POST',
-        headers: { 'X-Webhook-Secret': webhookSecret },
+        headers: {
+            'X-Webhook-Secret': webhookSecret,
+            ...(payload ? { 'Content-Type': 'application/json' } : {}),
+        },
+        ...(payload ? { body: JSON.stringify(payload) } : {}),
     });
     return true;
 }

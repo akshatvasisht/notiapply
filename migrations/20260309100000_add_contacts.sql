@@ -1,4 +1,3 @@
--- migrate:up
 
 CREATE TABLE contacts (
   id SERIAL PRIMARY KEY,
@@ -26,7 +25,3 @@ VALUES
 ('scrape-outreach-github', 'Lead Engineering Strategy (GitHub)', 'Polls open source GitHub organizations to find primary contributors, scraping their public emails and names for direct cold outreach.', 'scraping', 60, true, true, '10-scrape-outreach-github', '{"type":"object","properties":{"github_orgs":{"type":"array","title":"Target GitHub Orgs","items":{"type":"string"}}}}', '{}'),
 ('outreach-drafting', 'Outreach Drafter', 'Drafts 2-sentence cold emails for startup contacts.', 'processing', 15, true, true, '11-outreach-drafting', NULL, '{}');
 
--- migrate:down
-
-DELETE FROM pipeline_modules WHERE key IN ('outreach-drafting', 'scrape-outreach-yc', 'scrape-outreach-github');
-DROP TABLE IF EXISTS contacts;

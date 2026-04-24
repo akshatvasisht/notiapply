@@ -6,11 +6,15 @@ import DOMPurify from 'dompurify';
 import { toast } from 'sonner';
 import { logger } from '@/lib/logger';
 import type { Job, Application } from '@/lib/types';
-import { getApplicationByJobId, updateJobState, updateJobCallback, getJobById } from '@/lib/db';
+import { getApplicationByJobId, updateJobState, updateJobCallback, getJobById, updateApplicationDraftAnswers, updateApplicationNotes, hasDatabase } from '@/lib/db';
 import { SOURCE_LABELS, SOURCE_COLORS, getCardBorderColor } from '@/lib/types';
 import { timeAgo, formatSalary } from '@/lib/utils';
 import CompanyAvatar from '../common/CompanyAvatar';
 import ActionButton from '../common/ActionButton';
+import DetailHeader from '../common/DetailHeader';
+import ExpandableNotes from '../common/ExpandableNotes';
+import OutcomeTracker from '../common/OutcomeTracker';
+import SharedTextArea from '../common/SharedTextArea';
 
 interface FocusModeProps {
   job: Job;
@@ -72,10 +76,21 @@ export default function FocusMode({ job, onBack }: FocusModeProps) {
   const [application, setApplication] = useState<Application | null>(null);
   const [currentJob, setCurrentJob] = useState(job);
   const [notes, setNotes] = useState('');
-  const [notesExpanded, setNotesExpanded] = useState(false);
+  const [draftAnswers, setDraftAnswers] = useState<Array<{ question: string; answer: string }>>([]);
+  const [draftAnswersSaving, setDraftAnswersSaving] = useState(false);
+  const [scoreBreakdownExpanded, setScoreBreakdownExpanded] = useState(false);
 
   useEffect(() => {
-    getApplicationByJobId(job.id).then(setApplication).catch((err) => {
+    if (!hasDatabase()) return;
+    getApplicationByJobId(job.id).then(app => {
+      setApplication(app);
+      if (app?.draft_answers) {
+        setDraftAnswers(app.draft_answers);
+      }
+      if (app?.fill_notes !== undefined) {
+        setNotes(app?.fill_notes ?? '');
+      }
+    }).catch((err) => {
       logger.error('Failed to load application', 'FocusMode', err);
     });
   }, [job.id]);
@@ -110,40 +125,16 @@ export default function FocusMode({ job, onBack }: FocusModeProps) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      {/* Header */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 12,
-        height: 44, padding: '0 16px',
-        background: 'var(--color-surface-container)', borderBottom: '1px solid var(--color-border)',
-        flexShrink: 0,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button
-            onClick={onBack}
-            style={{
-              background: 'none', border: 'none', cursor: 'pointer',
-              fontSize: 16, color: 'var(--color-text-secondary)', padding: '4px 8px',
-              display: 'flex', alignItems: 'center',
-            }}
-          >
-            ‹ Back
-          </button>
-        </div>
-        <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: 'var(--color-text-primary)', textAlign: 'center' }}>
-          {currentJob.company} — {currentJob.title}
-        </span>
-        <span style={{
-          fontSize: 10, fontWeight: 500, padding: '2px 8px', borderRadius: 4,
-          color: sourceColors.text, background: sourceColors.bg,
-        }}>
-          {sourceLabel}
-        </span>
-      </div>
+      <DetailHeader
+        title={`${currentJob.company} — ${currentJob.title}`}
+        onBack={onBack}
+        badge={{ label: sourceLabel, color: sourceColors.text, bg: sourceColors.bg }}
+      />
 
       {/* Two-column layout */}
-      <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+      <div className="focus-layout" style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
         {/* Left — Job details */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: 24, borderRight: '1px solid var(--color-border)', minHeight: 0 }}>
+        <div style={{ flex: 1, overflowY: 'auto', padding: 24, borderRight: '1px solid var(--color-border)', minHeight: 0, minWidth: 0 }}>
           <div style={{
             borderLeft: `4px solid ${borderColor}`,
             paddingLeft: 16, marginBottom: 24,
@@ -162,6 +153,15 @@ export default function FocusMode({ job, onBack }: FocusModeProps) {
             <div style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>
               {currentJob.location}{salary && ` · ${salary}`}
             </div>
+            {(currentJob.equity_min || currentJob.equity_max) && (
+              <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginTop: 4 }}>
+                Equity: {currentJob.equity_min && currentJob.equity_max
+                  ? `${currentJob.equity_min}%–${currentJob.equity_max}%`
+                  : currentJob.equity_min
+                    ? `${currentJob.equity_min}%+`
+                    : `up to ${currentJob.equity_max}%`}
+              </div>
+            )}
           </div>
 
           <div style={{ marginBottom: 24 }}>
@@ -185,20 +185,35 @@ export default function FocusMode({ job, onBack }: FocusModeProps) {
         </div>
 
         {/* Right — Application details & timeline */}
-        <div style={{ width: 360, overflowY: 'auto', padding: 24, minHeight: 0, flexShrink: 0 }}>
-          <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)', marginTop: 0, marginBottom: 16 }}>
-            Status
-          </h3>
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16,
-            padding: '8px 12px', borderRadius: 6,
-            background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)',
-          }}>
-            <div style={{ width: 8, height: 8, borderRadius: '50%', background: borderColor }} />
-            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-primary)' }}>
-              {currentJob.state.replace(/-/g, ' ').replace(/^\w/, c => c.toUpperCase())}
-            </span>
-          </div>
+        <div className="focus-sidebar" style={{ width: 'clamp(240px, 30vw, 360px)', overflowY: 'auto', padding: 24, minHeight: 0, flexShrink: 0, boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
+          {currentJob.is_live === false && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12,
+              padding: '6px 10px', borderRadius: 6,
+              background: 'var(--color-error-container)', border: '1px solid var(--color-error)',
+            }}>
+              <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-error)' }}>Dead posting</span>
+              {currentJob.liveness_checked_at && (
+                <span style={{ fontSize: 11, color: 'var(--color-text-disabled)', marginLeft: 'auto' }}>
+                  Checked {timeAgo(currentJob.liveness_checked_at)}
+                </span>
+              )}
+            </div>
+          )}
+
+          {currentJob.state === 'docs-failed' && currentJob.docs_fail_reason && (
+            <div style={{
+              padding: '8px 12px', borderRadius: 6, marginBottom: 12,
+              background: 'var(--color-error-container)', border: '1px solid var(--color-error)',
+            }}>
+              <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-error)', marginBottom: 4 }}>
+                Doc generation failed
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', whiteSpace: 'pre-wrap' }}>
+                {currentJob.docs_fail_reason}
+              </div>
+            </div>
+          )}
 
           {application && (
             <>
@@ -216,21 +231,21 @@ export default function FocusMode({ job, onBack }: FocusModeProps) {
                   <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-warning)', marginBottom: 4 }}>
                     Incomplete fields
                   </div>
-                  {application.incomplete_fields.map((field, i) => (
-                    <div key={i} style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
+                  {application.incomplete_fields.map((field) => (
+                    <div key={field} style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
                       • {field}
                     </div>
                   ))}
                 </div>
               )}
 
-              {application.fill_notes && (
+              {application.fill_notes && ['fill-failed', 'review-incomplete'].includes(currentJob.state) && (
                 <div style={{
                   padding: '8px 12px', borderRadius: 6, marginBottom: 12,
                   background: 'var(--color-error-container)', border: '1px solid var(--color-error)',
                 }}>
                   <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-error)', marginBottom: 4 }}>
-                    Error
+                    Fill error
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', whiteSpace: 'pre-wrap' }}>
                     {application.fill_notes}
@@ -246,6 +261,58 @@ export default function FocusMode({ job, onBack }: FocusModeProps) {
                 </div>
               )}
             </>
+          )}
+
+          {/* Relevance Score — compact inline with expandable breakdown */}
+          {currentJob.relevance_score !== null && currentJob.relevance_score !== undefined && (
+            <div style={{ marginBottom: 12 }}>
+              <button
+                onClick={() => setScoreBreakdownExpanded(e => !e)}
+                aria-expanded={scoreBreakdownExpanded}
+                aria-label={scoreBreakdownExpanded ? 'Hide score breakdown' : 'Show score breakdown'}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                  background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0',
+                }}
+              >
+                <span style={{
+                  fontSize: 14,
+                  fontWeight: 600,
+                  color: currentJob.relevance_score >= 80
+                    ? 'var(--color-success)'
+                    : currentJob.relevance_score >= 50
+                      ? 'var(--color-warning)'
+                      : 'var(--color-error)',
+                }}>
+                  {currentJob.relevance_score}
+                </span>
+                <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', flex: 1, textAlign: 'left' }}>
+                  Match score
+                </span>
+                <span style={{ fontSize: 11, color: 'var(--color-text-disabled)' }}>
+                  {scoreBreakdownExpanded ? '▼' : '▶'}
+                </span>
+              </button>
+              {scoreBreakdownExpanded && currentJob.score_breakdown && (
+                <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3, paddingLeft: 22 }}>
+                  {currentJob.score_breakdown.match_highlights?.map((item) => (
+                    <div key={item} style={{ fontSize: 11, color: 'var(--color-success)', display: 'flex', gap: 4 }}>
+                      <span aria-hidden="true">+</span><span>Match: {item}</span>
+                    </div>
+                  ))}
+                  {currentJob.score_breakdown.red_flags?.map((item) => (
+                    <div key={item} style={{ fontSize: 11, color: 'var(--color-error)', display: 'flex', gap: 4 }}>
+                      <span aria-hidden="true">-</span><span>Flag: {item}</span>
+                    </div>
+                  ))}
+                  {currentJob.score_breakdown.reasons?.map((item) => (
+                    <div key={item} style={{ fontSize: 11, color: 'var(--color-on-surface-variant)' }}>
+                      {item}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
 
           <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)', marginTop: 24, marginBottom: 12 }}>
@@ -264,221 +331,142 @@ export default function FocusMode({ job, onBack }: FocusModeProps) {
               <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)', marginTop: 24, marginBottom: 12 }}>
                 Outcome
               </h3>
-              {/* Callback Tracking - INTERACTIVE */}
-              {currentJob.state === 'submitted' && currentJob.got_callback === null && (
-                <div style={{
-                  padding: '16px 18px',
-                  background: 'var(--color-surface-raised)',
-                  borderRadius: 8,
-                  border: '1px solid var(--color-border)',
-                }}>
-                  <div style={{
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: 'var(--color-text-secondary)',
-                    marginBottom: 12,
-                    letterSpacing: '0.3px',
-                  }}>
-                    Did you get a callback?
-                  </div>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button
-                      onClick={async () => {
-                        const notes = prompt('Add callback notes (optional):') || '';
-                        try {
-                          await updateJobCallback(currentJob.id, true, notes);
-                          await refreshJobData();
-                          toast.success('Callback recorded!');
-                        } catch (err) {
-                          toast.error((err as Error).message);
-                        }
-                      }}
-                      style={{
-                        flex: 1,
-                        padding: '10px 16px',
-                        borderRadius: 6,
-                        border: 'none',
-                        background: 'var(--color-success)',
-                        color: 'white',
-                        fontSize: 13,
-                        fontWeight: 500,
-                        cursor: 'pointer',
-                        transition: 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.transform = 'translateY(-1px)';
-                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(34, 197, 94, 0.3)';
-                        e.currentTarget.style.filter = 'brightness(1.05)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.transform = 'translateY(0)';
-                        e.currentTarget.style.boxShadow = 'none';
-                        e.currentTarget.style.filter = 'brightness(1)';
-                      }}
-                      onMouseDown={(e) => {
-                        e.currentTarget.style.transform = 'translateY(0) scale(0.98)';
-                      }}
-                      onMouseUp={(e) => {
-                        e.currentTarget.style.transform = 'translateY(-1px) scale(1)';
-                      }}
-                    >
-                      ✓ Got Callback
-                    </button>
-
-                    <button
-                      onClick={async () => {
-                        try {
-                          await updateJobCallback(currentJob.id, false, 'No callback received');
-                          await refreshJobData();
-                          toast.info('Marked as no callback');
-                        } catch (err) {
-                          toast.error((err as Error).message);
-                        }
-                      }}
-                      style={{
-                        flex: 1,
-                        padding: '10px 16px',
-                        borderRadius: 6,
-                        border: '1px solid var(--color-border)',
-                        background: 'var(--color-surface)',
-                        color: 'var(--color-text-secondary)',
-                        fontSize: 13,
-                        fontWeight: 500,
-                        cursor: 'pointer',
-                        transition: 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.borderColor = 'var(--color-text-tertiary)';
-                        e.currentTarget.style.background = 'var(--color-surface-container)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.borderColor = 'var(--color-border)';
-                        e.currentTarget.style.background = 'var(--color-surface)';
-                      }}
-                      onMouseDown={(e) => {
-                        e.currentTarget.style.transform = 'scale(0.98)';
-                      }}
-                      onMouseUp={(e) => {
-                        e.currentTarget.style.transform = 'scale(1)';
-                      }}
-                    >
-                      No Callback
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Callback Status - DISPLAY (after marked) */}
-              {currentJob.got_callback !== null && (
-                <div style={{
-                  padding: '14px 18px',
-                  borderRadius: 8,
-                  background: currentJob.got_callback
-                    ? 'var(--color-success-container)'
-                    : 'var(--color-surface-raised)',
-                  border: currentJob.got_callback
-                    ? '1px solid rgba(34, 197, 94, 0.2)'
-                    : '1px solid var(--color-border)',
-                }}>
-                  <div style={{
-                    fontSize: 14,
-                    fontWeight: 500,
-                    color: currentJob.got_callback
-                      ? 'var(--color-success)'
-                      : 'var(--color-text-secondary)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    marginBottom: currentJob.got_callback && currentJob.callback_notes ? 8 : 0,
-                  }}>
-                    <span style={{ fontSize: 16, lineHeight: 1 }}>
-                      {currentJob.got_callback ? '✓' : '○'}
-                    </span>
-                    {currentJob.got_callback ? 'Received callback' : 'No callback yet'}
-                  </div>
-
-                  {currentJob.got_callback && currentJob.callback_notes && (
-                    <div style={{
-                      fontSize: 13,
-                      color: 'var(--color-text-secondary)',
-                      paddingLeft: 24,
-                      lineHeight: 1.5,
-                    }}>
-                      {currentJob.callback_notes}
-                    </div>
-                  )}
-                </div>
+              {currentJob.state === 'submitted' && currentJob.got_callback === null ? (
+                <OutcomeTracker
+                  outcome={null}
+                  notes={null}
+                  positiveLabel="Got Callback"
+                  negativeLabel="No Callback"
+                  positiveDisplay="Received callback"
+                  negativeDisplay="No callback yet"
+                  onPositive={async (cbNotes) => {
+                    await updateJobCallback(currentJob.id, true, cbNotes);
+                    await refreshJobData();
+                    toast.success('Callback recorded!');
+                  }}
+                  onNegative={async () => {
+                    await updateJobCallback(currentJob.id, false, 'No callback received');
+                    await refreshJobData();
+                    toast.info('Marked as no callback');
+                  }}
+                />
+              ) : (
+                <OutcomeTracker
+                  outcome={currentJob.got_callback}
+                  notes={currentJob.callback_notes ?? null}
+                  positiveLabel="Got Callback"
+                  negativeLabel="No Callback"
+                  positiveDisplay="Received callback"
+                  negativeDisplay="No callback yet"
+                  onPositive={async () => {}}
+                  onNegative={async () => {}}
+                />
               )}
             </>
           )}
 
-          <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)', marginTop: 24, marginBottom: 12 }}>
-            Notes
-          </h3>
-          <button
-            onClick={() => setNotesExpanded(!notesExpanded)}
-            style={{
-              width: '100%',
-              padding: '8px 12px',
-              borderRadius: 6,
-              border: '1px solid var(--color-outline-variant)',
-              background: 'var(--color-surface-raised)',
-              color: 'var(--color-on-surface)',
-              fontSize: 12,
-              cursor: 'pointer',
-              textAlign: 'left',
-              marginBottom: notesExpanded ? 8 : 0,
-            }}
-          >
-            {notesExpanded ? '▼ Hide notes' : '▶ Add notes'}
-          </button>
-          {notesExpanded && (
-            <textarea
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              placeholder="Add notes about this application..."
-              style={{
-                width: '100%',
-                minHeight: 100,
-                padding: '8px 12px',
-                borderRadius: 6,
-                border: '1px solid var(--color-outline-variant)',
-                background: 'var(--color-surface)',
-                color: 'var(--color-on-surface)',
-                fontSize: 12,
-                fontFamily: 'inherit',
-                resize: 'vertical',
-                outline: 'none',
-              }}
-            />
+          {draftAnswers.length > 0 && (
+            <>
+              <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)', marginTop: 24, marginBottom: 12 }}>
+                Draft Answers
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 12 }}>
+                {draftAnswers.map((qa) => (
+                  <div key={qa.question}>
+                    <div style={{
+                      fontSize: 11, fontWeight: 500, color: 'var(--color-text-tertiary)',
+                      marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.5px',
+                    }}>
+                      {qa.question}
+                    </div>
+                    <SharedTextArea
+                      aria-label={`Answer for: ${qa.question}`}
+                      value={qa.answer}
+                      onChange={e => {
+                        const updated = draftAnswers.map((item) =>
+                          item.question === qa.question ? { ...item, answer: e.target.value } : item
+                        );
+                        setDraftAnswers(updated);
+                      }}
+                      style={{ minHeight: 72, padding: '8px 10px' }}
+                    />
+                  </div>
+                ))}
+              </div>
+              <button
+                disabled={draftAnswersSaving}
+                onClick={async () => {
+                  if (!application) return;
+                  setDraftAnswersSaving(true);
+                  try {
+                    await updateApplicationDraftAnswers(application.id, draftAnswers);
+                    toast.success('Draft answers saved');
+                  } catch (err) {
+                    toast.error((err as Error).message);
+                  } finally {
+                    setDraftAnswersSaving(false);
+                  }
+                }}
+                style={{
+                  padding: '7px 14px',
+                  borderRadius: 6,
+                  border: 'none',
+                  background: 'var(--color-primary)',
+                  color: 'var(--color-on-primary)',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  cursor: draftAnswersSaving ? 'not-allowed' : 'pointer',
+                  opacity: draftAnswersSaving ? 0.6 : 1,
+                }}
+              >
+                {draftAnswersSaving ? 'Saving…' : 'Save answers'}
+              </button>
+            </>
           )}
 
-          <div style={{ marginTop: 24 }}>
-            <a
-              href={currentJob.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                fontSize: 12, color: 'var(--color-primary)',
-                textDecoration: 'none',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
+          {/* Pinned to bottom on low-info cards — expanding notes grows into scroll area, no layout shift */}
+          <div style={{ marginTop: 'auto' }}>
+            <ExpandableNotes
+              value={notes}
+              onChange={setNotes}
+              onSave={(val) => {
+                if (application) {
+                  updateApplicationNotes(application.id, val).catch(err =>
+                    logger.error('Failed to save notes', 'FocusMode', err)
+                  );
+                }
               }}
-            >
-              Open original listing
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginBottom: -1 }}>
-                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                <polyline points="15 3 21 3 21 9" />
-                <line x1="10" y1="14" x2="21" y2="3" />
-              </svg>
-            </a>
+              placeholder="Add notes about this application..."
+            />
+
+            <div style={{ marginTop: 24 }}>
+              <a
+                href={currentJob.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  fontSize: 12, color: 'var(--color-primary)',
+                  textDecoration: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                Open original listing
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginBottom: -1 }}>
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                  <polyline points="15 3 21 3 21 9" />
+                  <line x1="10" y1="14" x2="21" y2="3" />
+                </svg>
+              </a>
+            </div>
           </div>
         </div>
       </div>
     </div>
   );
 }
+
 
 function TimelineEvent({ label, date }: { label: string; date: string }) {
   return (

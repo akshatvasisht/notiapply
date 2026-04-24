@@ -1,0 +1,32 @@
+% Cache-primer for the Tectonic LaTeX engine baked into the runner image.
+% Compiled once at image build to populate ~/.cache/Tectonic with the common
+% packages used by master_resume.tex and cover_letter templates, so the first
+% runtime compilation in each fresh container doesn't stall downloading TeX
+% Live packages. Not intended to produce a meaningful PDF.
+
+\documentclass[11pt,letterpaper]{article}
+
+% Layout + typography
+\usepackage[margin=0.75in]{geometry}
+\usepackage{lmodern}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{parskip}
+
+% Utility packages commonly referenced in resume/cover LaTeX
+\usepackage[hidelinks]{hyperref}
+\usepackage{xcolor}
+\usepackage{fontawesome5}
+\usepackage{tabularx}
+\usepackage{ragged2e}
+
+% Provide a minimal visible body so Tectonic compiles without warning.
+\begin{document}
+\section*{Tectonic preload}
+This PDF exists only to prime the package cache during image build.
+\begin{itemize}[leftmargin=*]
+    \item geometry
+    \item hyperref
+    \item titlesec
+\end{itemize}
+\end{document}

@@ -6,7 +6,7 @@ import DOMPurify from 'dompurify';
 import { toast } from 'sonner';
 import { logger } from '@/lib/logger';
 import type { Job, Application } from '@/lib/types';
-import { getApplicationByJobId, updateJobState, updateJobCallback, getJobById, updateApplicationDraftAnswers, updateApplicationNotes, hasDatabase } from '@/lib/db';
+import { getApplicationByJobId, updateJobState, updateJobCallback, getJobById, updateApplicationDraftAnswers, updateApplicationNotes, hasDatabase, retryDocs } from '@/lib/db';
 import { SOURCE_LABELS, SOURCE_COLORS, getCardBorderColor } from '@/lib/types';
 import { timeAgo, formatSalary } from '@/lib/utils';
 import CompanyAvatar from '../common/CompanyAvatar';
@@ -201,17 +201,45 @@ export default function FocusMode({ job, onBack }: FocusModeProps) {
             </div>
           )}
 
-          {currentJob.state === 'docs-failed' && currentJob.docs_fail_reason && (
+          {currentJob.state === 'docs-failed' && (
             <div style={{
               padding: '8px 12px', borderRadius: 6, marginBottom: 12,
               background: 'var(--color-error-container)', border: '1px solid var(--color-error)',
             }}>
-              <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-error)', marginBottom: 4 }}>
-                Doc generation failed
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-error)' }}>
+                  Doc generation failed
+                </div>
+                <button
+                  onClick={async () => {
+                    try {
+                      await retryDocs(currentJob.id);
+                      setCurrentJob({ ...currentJob, state: 'filtered', docs_fail_reason: null });
+                      toast.success('Re-queued for doc generation');
+                    } catch (err) {
+                      logger.error('retryDocs failed', 'FocusMode', err);
+                      toast.error(`Retry failed: ${err instanceof Error ? err.message : String(err)}`);
+                    }
+                  }}
+                  title="Reset this job to 'filtered' so the next doc-generation run retries it"
+                  style={{
+                    fontSize: 11,
+                    padding: '3px 10px',
+                    background: 'transparent',
+                    color: 'var(--color-error)',
+                    border: '1px solid var(--color-error)',
+                    borderRadius: 999,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Retry docs
+                </button>
               </div>
-              <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', whiteSpace: 'pre-wrap' }}>
-                {currentJob.docs_fail_reason}
-              </div>
+              {currentJob.docs_fail_reason && (
+                <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', whiteSpace: 'pre-wrap' }}>
+                  {currentJob.docs_fail_reason}
+                </div>
+              )}
             </div>
           )}
 

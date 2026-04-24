@@ -26,6 +26,7 @@ pytest-asyncio==0.24.0
 
 # Secret Management
 keyring==25.5.0
+cryptography==43.0.1  # AES-256-GCM for crypto_helper.py (decrypts user_config secrets at read time)
 
 # Analytics (Optional - for skill extraction from free text)
 # keybert==0.8.5

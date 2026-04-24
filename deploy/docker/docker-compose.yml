@@ -68,6 +68,17 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       NOTIAPPLY_WEBHOOK_SECRET: ${NOTIAPPLY_WEBHOOK_SECRET}
+      # gmail-watch + check_verification_email look here for gmail_token.json.
+      # Bootstrap the token on the host via: python server/gmail_auth_init.py
+      GMAIL_CREDENTIALS_DIR: /app/credentials
+    volumes:
+      # Read-write: google-auth rewrites gmail_token.json on refresh (~1h cadence).
+      - ./gmail:/app/credentials
+      # Tectonic downloads TeX Live packages on demand. Keeping this as a named
+      # volume means the preload RUN layer in runner.Dockerfile primes it once
+      # at build, and any runtime package downloads persist across container
+      # restarts.
+      - tectonic_cache:/root/.cache/Tectonic
     ports:
       # Host-local only (handy for `curl http://127.0.0.1:8080/healthz`).
       # n8n reaches the runner via the compose network at http://runner:8080.
@@ -82,6 +93,7 @@ services:
 volumes:
   postgres_data:
   n8n_data:
+  tectonic_cache:
 
 networks:
   notiapply:

@@ -14,6 +14,8 @@ import requests
 import psycopg2
 import structlog
 
+from scraper.crypto_helper import decrypt_config
+
 
 def dedup_hash(company: str, title: str, location: str) -> str:
     raw = f"{company.lower()}|{title.lower()}|{location.lower()}"
@@ -173,7 +175,7 @@ def run(db_url: str, module_config: dict):
     try:
         cur = conn.cursor()
         cur.execute("SELECT config FROM user_config WHERE id = 1")
-        config = cur.fetchone()[0]
+        config = decrypt_config(cur.fetchone()[0] or {})
         cur.close()
 
         repos = config.get("github_repos", ["SimplifyJobs/New-Grad-Positions"])

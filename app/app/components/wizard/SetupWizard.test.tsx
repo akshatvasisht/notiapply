@@ -12,15 +12,18 @@ vi.mock('@/lib/db', () => ({
     uploadCoverLetterTemplate: vi.fn().mockResolvedValue(undefined),
 }));
 
-// FileReader mock — synchronously fires onload after readAsText / readAsDataURL
+// FileReader mock — reads the real File content (via Blob.text()) so tests
+// exercise the actual validation path in ResumeStep's handleFile.
 class MockFileReader {
     result: string | null = null;
     onload: (() => void) | null = null;
     onerror: ((e: unknown) => void) | null = null;
 
-    readAsText(_file: File) {
-        this.result = '\\documentclass{article}\\begin{document}Test\\end{document}';
-        setTimeout(() => this.onload?.(), 0);
+    readAsText(file: File) {
+        file.text().then((text) => {
+            this.result = text;
+            this.onload?.();
+        });
     }
 
     readAsDataURL(_file: File) {
@@ -42,8 +45,19 @@ const noop = () => {};
  * Simulate uploading a .tex file via the hidden <input type="file"> inside
  * the first FileDropField (Master Resume).
  */
-async function uploadResumeFile() {
-    const file = new File(['\\documentclass{article}'], 'resume.tex', { type: 'text/plain' });
+/** Minimal .tex that passes the Master-Resume validator:
+ *   — at least one % <BLOCK:Name> ... % <ENDBLOCK:Name> pair
+ *   — a % SKILLS_INJECT_POINT marker
+ *  Tests that don't exercise validation should use this fixture so the
+ *  wizard's Continue button unlocks. */
+const VALID_MASTER_TEX =
+    '\\documentclass{article}\\begin{document}' +
+    '% <BLOCK:Experience>\n\\section{Experience} body\n% <ENDBLOCK:Experience>\n' +
+    '% SKILLS_INJECT_POINT' +
+    '\\end{document}';
+
+async function uploadResumeFile(content: string = VALID_MASTER_TEX) {
+    const file = new File([content], 'resume.tex', { type: 'text/plain' });
     // The FileDropField renders a hidden <input type="file"> — grab by accept attribute
     const inputs = document.querySelectorAll('input[type="file"]');
     const resumeInput = inputs[0] as HTMLInputElement;
@@ -117,8 +131,8 @@ describe('SetupWizard', () => {
 
         // Step 2 heading is "API Keys"
         expect(screen.getByText('API Keys')).toBeInTheDocument();
-        // API Keys step renders an LLM Endpoint field
-        expect(screen.getByText('LLM Endpoint *')).toBeInTheDocument();
+        // Required-mark was split out of the label text; check the input exists instead.
+        expect(document.querySelector('#validated-llm-endpoint')).toBeInTheDocument();
     });
 
     it('step 2 → step 3 navigation fills required API key fields then continues', async () => {
@@ -133,18 +147,15 @@ describe('SetupWizard', () => {
         });
         expect(screen.getByText('API Keys')).toBeInTheDocument();
 
-        // Fill required step-2 fields: LLM Endpoint, LLM API Key, ntfy Topic
+        // Fill required step-2 fields: LLM Endpoint, LLM API Key
         const endpointInput = screen.getByPlaceholderText(
             'https://generativelanguage.googleapis.com/v1beta/openai'
         );
         fireEvent.change(endpointInput, { target: { value: 'https://api.example.com/v1' } });
 
-        // LLM API Key has type="password" — find by label
-        const apiKeyInput = screen.getByLabelText('LLM API Key *') as HTMLInputElement;
+        // Required-mark moved into a separate aria-hidden span; look up by id.
+        const apiKeyInput = document.querySelector('#input-llm-api-key') as HTMLInputElement;
         fireEvent.change(apiKeyInput, { target: { value: 'test-key' } });
-
-        const ntfyInput = screen.getByPlaceholderText('notiapply-abc123');
-        fireEvent.change(ntfyInput, { target: { value: 'my-topic' } });
 
         // Continue to step 3
         const continueBtn = screen.getByText('Continue') as HTMLButtonElement;
@@ -154,8 +165,8 @@ describe('SetupWizard', () => {
 
         // Step 3 heading is "Preferences"
         expect(screen.getByText('Preferences')).toBeInTheDocument();
-        // The Search Terms TagField should be visible
-        expect(screen.getByText('Search Terms *')).toBeInTheDocument();
+        // The Search Terms TagField should be visible (label text is split from the `*`).
+        expect(document.querySelector('#tag-search-terms')).toBeInTheDocument();
     });
 
     it('"Launch Notiapply" on confirm step calls uploadMasterResume and updateUserConfig', async () => {
@@ -175,10 +186,8 @@ describe('SetupWizard', () => {
             'https://generativelanguage.googleapis.com/v1beta/openai'
         );
         fireEvent.change(endpointInput, { target: { value: 'https://api.example.com/v1' } });
-        const apiKeyInput = screen.getByLabelText('LLM API Key *') as HTMLInputElement;
+        const apiKeyInput = document.querySelector('#input-llm-api-key') as HTMLInputElement;
         fireEvent.change(apiKeyInput, { target: { value: 'test-key' } });
-        const ntfyInput = screen.getByPlaceholderText('notiapply-abc123');
-        fireEvent.change(ntfyInput, { target: { value: 'my-topic' } });
         await act(async () => {
             fireEvent.click(screen.getByText('Continue'));
         });

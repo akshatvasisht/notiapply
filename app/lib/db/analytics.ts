@@ -3,22 +3,6 @@
 import { getPool } from './pool';
 import type { ATSFailure, AutomationStats, SourceCoverage, CallbackStats } from '../types';
 
-export interface SourceConversionRate {
-    source: string;
-    total: number;
-    callbacks: number;
-    rate: number; // percentage, 0-100
-}
-
-export interface ScoreConversionBucket {
-    bucket: string;
-    min_score: number;
-    max_score: number;
-    total: number;
-    callbacks: number;
-    rate: number;
-}
-
 export async function getATSFailures(): Promise<ATSFailure[]> {
     try {
         const { rows } = await getPool().query(`
@@ -89,67 +73,6 @@ export async function getSourceCoverage(): Promise<SourceCoverage> {
         };
     } catch {
         return { active: 0, total: 4 }; // Default to 4 built-in scraping modules
-    }
-}
-
-export async function getSourceConversionRates(): Promise<SourceConversionRate[]> {
-    try {
-        const { rows } = await getPool().query(`
-            SELECT
-                source,
-                COUNT(*) AS total,
-                COUNT(*) FILTER (WHERE got_callback = true) AS callbacks
-            FROM jobs
-            WHERE state NOT IN ('discovered', 'filtered-out')
-            GROUP BY source
-            HAVING COUNT(*) >= 3
-            ORDER BY callbacks DESC, total DESC
-        `);
-        return rows.map(r => ({
-            source: r.source,
-            total: parseInt(r.total),
-            callbacks: parseInt(r.callbacks),
-            rate: parseInt(r.total) > 0
-                ? Math.round((parseInt(r.callbacks) / parseInt(r.total)) * 100)
-                : 0,
-        }));
-    } catch {
-        return [];
-    }
-}
-
-export async function getScoreConversionBuckets(): Promise<ScoreConversionBucket[]> {
-    try {
-        const { rows } = await getPool().query(`
-            SELECT
-                CASE
-                    WHEN relevance_score >= 80 THEN '80-100'
-                    WHEN relevance_score >= 60 THEN '60-79'
-                    WHEN relevance_score >= 40 THEN '40-59'
-                    ELSE '0-39'
-                END AS bucket,
-                MIN(relevance_score) AS min_score,
-                MAX(relevance_score) AS max_score,
-                COUNT(*) AS total,
-                COUNT(*) FILTER (WHERE got_callback = true) AS callbacks
-            FROM jobs
-            WHERE relevance_score IS NOT NULL
-              AND state NOT IN ('discovered', 'filtered-out')
-            GROUP BY bucket
-            ORDER BY bucket DESC
-        `);
-        return rows.map(r => ({
-            bucket: r.bucket,
-            min_score: parseInt(r.min_score),
-            max_score: parseInt(r.max_score),
-            total: parseInt(r.total),
-            callbacks: parseInt(r.callbacks),
-            rate: parseInt(r.total) > 0
-                ? Math.round((parseInt(r.callbacks) / parseInt(r.total)) * 100)
-                : 0,
-        }));
-    } catch {
-        return [];
     }
 }
 

@@ -16,11 +16,11 @@ vi.mock('./logger', () => ({
 }));
 
 vi.mock('./llm', () => ({
-    buildProviderHeaders: vi.fn(() => ({
+    buildLLMHeaders: vi.fn(() => ({
         'Content-Type': 'application/json',
         Authorization: 'Bearer test-key',
     })),
-    buildProviderRequest: vi.fn(() => ({
+    buildLLMRequest: vi.fn(() => ({
         model: 'gpt-4',
         messages: [],
     })),
@@ -34,7 +34,6 @@ describe('Draft Scoring', () => {
     const mockConfig: UserConfig = {
         llm_endpoint: 'https://api.test.com/v1/chat',
         llm_api_key: 'test-api-key',
-        llm_provider: 'openai',
         llm_model: 'gpt-4',
     };
 

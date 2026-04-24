@@ -17,29 +17,13 @@ import argparse
 import json
 import re
 import sys
-import os
-from datetime import datetime
 from typing import Optional
 
 try:
-    from google.oauth2.credentials import Credentials
-    from googleapiclient.discovery import build
+    from gmail_auth import get_gmail_service  # noqa: F401  (re-exported for tests)
 except ImportError:
     print(json.dumps({"error": "Gmail API not installed"}), file=sys.stderr)
     sys.exit(1)
-
-# Gmail API token path (shared with gmail_watcher.py)
-TOKEN_PATH = os.path.join(os.path.dirname(__file__), 'gmail_token.json')
-SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
-
-
-def get_gmail_service():
-    """Get authenticated Gmail API service."""
-    if not os.path.exists(TOKEN_PATH):
-        raise FileNotFoundError(f"Gmail credentials not found at {TOKEN_PATH}")
-
-    creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
-    return build('gmail', 'v1', credentials=creds)
 
 
 def extract_verification_link(email_body: str, from_domain: str) -> Optional[str]:

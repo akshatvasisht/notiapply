@@ -48,3 +48,31 @@ def decrypt_if_needed(value: str | None, key: bytes | None) -> str | None:
         except Exception:
             return value  # Might be plaintext
     return value
+
+
+# Fields written encrypted by app/lib/secure-config.ts. Kept in sync with the
+# `SENSITIVE_FIELDS` list there so decryption on read matches encryption on
+# write. Used by every server-side consumer of user_config.
+SENSITIVE_CFG_FIELDS = (
+    "llm_api_key",
+    "user_email_password",
+    "ats_password",
+    "ats_shared_password",
+    "github_token",
+    "linkedin_cookie",
+    "n8n_webhook_secret",
+    "smtp_password",
+)
+
+
+def decrypt_config(cfg: dict) -> dict:
+    """Decrypt sensitive fields in `cfg` in-place and return it.
+
+    Graceful: if `ENCRYPTION_KEY` isn't set, or a value isn't encrypted,
+    `decrypt_if_needed` returns the original value — safe on plaintext rows.
+    """
+    key = get_encryption_key()
+    for field in SENSITIVE_CFG_FIELDS:
+        if field in cfg:
+            cfg[field] = decrypt_if_needed(cfg.get(field), key)
+    return cfg

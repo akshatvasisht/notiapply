@@ -6,7 +6,6 @@ from psycopg2 import extras as psycopg2_extras
 import instructor
 from openai import OpenAI
 from typing import List, Dict, Any, Type, Optional
-from scrapling import Fetcher
 from pydantic import BaseModel
 from datetime import datetime
 from .job_relevance import should_auto_filter
@@ -15,6 +14,12 @@ import structlog
 import subprocess
 import time
 import random
+
+# NOTE: scrapling.Fetcher is lazy-imported inside BaseScraper.__init__ to keep
+# this module (and its downstream importers like test_base_scraper.py) loadable
+# in test environments without playwright — scrapling transitively imports
+# playwright._impl._errors, which isn't installed in lightweight venvs.
+# The Docker runner image has the full dep chain; production is unaffected.
 
 configure_logging()
 
@@ -28,6 +33,7 @@ class BaseScraper(abc.ABC):
         self.scraper_key = scraper_key
         self.log = structlog.get_logger().bind(scraper_key=self.scraper_key)
         self.use_stealth = use_stealth
+        from scrapling import Fetcher  # lazy: see module docstring
         self.fetcher = Fetcher(stealth=self.use_stealth, auto_match=False if not use_stealth else True)
         self.run_id: Optional[int] = None
         self.errors: List[str] = []
@@ -230,12 +236,13 @@ class BaseScraper(abc.ABC):
                     for contact in contacts:
                         h = self.contact_hash(contact["name"], contact["company_name"])
                         cur.execute("""
-                            INSERT INTO contacts (name, role, company_name, linkedin_url, email, contact_hash, job_id, department, source)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            INSERT INTO contacts (name, role, company_name, linkedin_url, personal_url, email, contact_hash, job_id, department, source)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             ON CONFLICT (contact_hash) DO NOTHING
                         """, (
                             contact["name"], contact.get("role"), contact["company_name"],
-                            contact.get("linkedin_url"), contact.get("email"), h,
+                            contact.get("linkedin_url"), contact.get("personal_url"),
+                            contact.get("email"), h,
                             contact.get("job_id"), contact.get("department"), contact.get("source")
                         ))
                         if cur.rowcount > 0:

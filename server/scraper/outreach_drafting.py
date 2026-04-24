@@ -18,6 +18,7 @@ import urllib.request
 
 import psycopg2
 
+from scraper.crypto_helper import decrypt_config
 from scraper.db_connect import get_db_url
 
 
@@ -131,46 +132,27 @@ def _build_prompt(contact: dict, tone: str) -> str:
     return " ".join(parts)
 
 
-def _build_request(provider: str, prompt: str, cfg: dict) -> tuple[dict, dict]:
-    default_models = {
-        "openai": "gpt-4o-mini",
-        "gemini": "gemini-2.0-flash",
-        "anthropic": "claude-haiku-4-5-20251001",
+def _build_request(prompt: str, cfg: dict) -> tuple[dict, dict]:
+    """OpenAI-compatible chat-completions. See doc_generation._build_llm_request for rationale."""
+    model = cfg.get("llm_model") or "gemini-1.5-flash"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {cfg.get('llm_api_key') or ''}",
     }
-    model = cfg.get("llm_model") or default_models.get(provider, "gpt-4o-mini")
-    headers = {"Content-Type": "application/json"}
-    if provider in ("openai", "gemini"):
-        headers["Authorization"] = f"Bearer {cfg.get('llm_api_key')}"
-        body = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
-            ],
-            "max_tokens": 200,
-            "temperature": 0.7,
-        }
-    elif provider == "anthropic":
-        headers["x-api-key"] = cfg.get("llm_api_key") or ""
-        headers["anthropic-version"] = "2023-06-01"
-        body = {
-            "model": model,
-            "system": _SYSTEM_PROMPT,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 200,
-            "temperature": 0.7,
-        }
-    else:
-        raise ValueError(f"unsupported provider: {provider}")
+    body = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
+        "max_tokens": 200,
+        "temperature": 0.7,
+    }
     return headers, body
 
 
-def _extract_message(provider: str, data: dict) -> str:
-    if provider in ("openai", "gemini"):
-        return data["choices"][0]["message"]["content"].strip()
-    if provider == "anthropic":
-        return data["content"][0]["text"].strip()
-    raise ValueError(f"unsupported provider: {provider}")
+def _extract_message(data: dict) -> str:
+    return data["choices"][0]["message"]["content"].strip()
 
 
 def _call_llm(endpoint: str, headers: dict, body: dict, timeout: int = 30) -> dict:
@@ -190,7 +172,7 @@ def run(db_url: str, module_config: dict):
 
     cur.execute("SELECT config FROM user_config WHERE id = 1")
     row = cur.fetchone()
-    cfg = (row[0] if row else {}) or {}
+    cfg = decrypt_config((row[0] if row else {}) or {})
 
     endpoint = cfg.get("llm_endpoint")
     api_key = cfg.get("llm_api_key")
@@ -199,7 +181,6 @@ def run(db_url: str, module_config: dict):
         conn.close()
         return {"drafted": 0, "skipped": 0, "errors": ["LLM endpoint/api_key not configured"]}
 
-    provider = cfg.get("llm_provider") or "gemini"
     tone = cfg.get("crm_message_tone") or "professional"
     batch_size = int(module_config.get("batch_size", 25))
 
@@ -234,9 +215,9 @@ def run(db_url: str, module_config: dict):
                 },
                 tone,
             )
-            headers, body = _build_request(provider, prompt, cfg)
+            headers, body = _build_request(prompt, cfg)
             data = _call_llm(endpoint, headers, body)
-            message = _extract_message(provider, data)
+            message = _extract_message(data)
             cur.execute(
                 "UPDATE contacts SET drafted_message = %s, updated_at = NOW() "
                 "WHERE id = %s AND drafted_message IS NULL",

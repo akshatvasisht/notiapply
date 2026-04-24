@@ -14,7 +14,6 @@ import {
     validateContacts,
     JobStateSchema,
     ContactStateSchema,
-    LLMProviderSchema,
 } from './validation';
 import { makeContact, makeJob, makeApplication, makeUserConfig } from './test-fixtures';
 
@@ -142,12 +141,6 @@ describe('Zod Validation Schemas', () => {
             expect(() => ContactStateSchema.parse('invalid')).toThrow();
         });
 
-        it('validates LLMProvider enum', () => {
-            expect(LLMProviderSchema.parse('openai')).toBe('openai');
-            expect(LLMProviderSchema.parse('anthropic')).toBe('anthropic');
-            expect(LLMProviderSchema.parse('gemini')).toBe('gemini');
-            expect(() => LLMProviderSchema.parse('invalid')).toThrow();
-        });
     });
 
     describe('UserConfigSchema', () => {
@@ -155,13 +148,12 @@ describe('Zod Validation Schemas', () => {
             const validConfig = {
                 llm_endpoint: 'https://api.openai.com/v1/chat',
                 llm_api_key: 'sk-test-key',
-                llm_provider: 'openai',
                 llm_model: 'gpt-4',
                 crm_message_tone: 'professional',
             };
 
             const result = UserConfigSchema.parse(validConfig);
-            expect(result.llm_provider).toBe('openai');
+            expect(result.llm_endpoint).toBe('https://api.openai.com/v1/chat');
         });
 
         it('validates partial config', () => {
@@ -260,7 +252,6 @@ describe('Validation Helper Functions (runtime boundaries)', () => {
     it('validateUserConfig passes valid config', () => {
         const config = makeUserConfig();
         const result = validateUserConfig(config);
-        expect(result.llm_provider).toBe('openai');
         expect(result.llm_model).toBe('gpt-4');
     });
 

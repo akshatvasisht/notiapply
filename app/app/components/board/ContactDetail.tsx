@@ -14,7 +14,7 @@ import DetailHeader from '../common/DetailHeader';
 import ExpandableNotes from '../common/ExpandableNotes';
 import OutcomeTracker from '../common/OutcomeTracker';
 import type { Job } from '@/lib/types';
-import { updateContactResponse, addContactInteraction, updateContactNotes } from '@/lib/db';
+import { updateContactResponse, addContactInteraction, updateContactNotes, requestContactReenrichment } from '@/lib/db';
 import EnrichContactModal from './EnrichContactModal';
 import CoachingNudge from './CoachingNudge';
 import DraftMessagePanel from './DraftMessagePanel';
@@ -175,6 +175,72 @@ export default function ContactDetail({ contact, jobs, onClose, onStateChange: _
                                     Recent LinkedIn Activity
                                 </div>
                                 <em>"{contact.linkedin_posts_summary}"</em>
+                            </div>
+                        )}
+
+                        {/* 3b. Enrichment (from enrich-contacts pipeline) */}
+                        {contact.enrichment_status === 'completed' && contact.enrichment && (
+                            <div style={{
+                                padding: '12px 14px', borderRadius: 10,
+                                background: 'var(--color-surface-raised)',
+                                border: '1px solid var(--color-border)',
+                                fontSize: 12, color: 'var(--color-text-secondary)',
+                                lineHeight: 1.5,
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                        Enrichment
+                                        {contact.enriched_at && (
+                                            <span style={{ fontWeight: 400, marginLeft: 8, textTransform: 'none', letterSpacing: 0 }}>
+                                                · {timeAgo(contact.enriched_at)}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <button
+                                        onClick={async () => {
+                                            try {
+                                                await requestContactReenrichment(contact.id);
+                                                onContactUpdated({ ...contact, enrichment_status: 'pending' });
+                                                toast.success('Queued for re-enrichment');
+                                            } catch (err) {
+                                                toast.error(`Failed: ${err instanceof Error ? err.message : String(err)}`);
+                                            }
+                                        }}
+                                        title="Mark this contact for re-enrichment on the next pipeline run"
+                                        style={{
+                                            fontSize: 11,
+                                            padding: '3px 10px',
+                                            background: 'transparent',
+                                            color: 'var(--color-primary)',
+                                            border: '1px solid var(--color-primary)',
+                                            borderRadius: 999,
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        Refresh
+                                    </button>
+                                </div>
+                                {typeof contact.enrichment.summary === 'string' && contact.enrichment.summary.length > 0 && (
+                                    <div style={{ marginBottom: 8 }}>{contact.enrichment.summary}</div>
+                                )}
+                                {Array.isArray(contact.enrichment.topics) && contact.enrichment.topics.length > 0 && (
+                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+                                        {contact.enrichment.topics.map((t, idx) => (
+                                            <span key={`topic-${idx}`} style={{ padding: '2px 8px', borderRadius: 999, background: 'var(--color-primary-container)', color: 'var(--color-primary)', fontSize: 11 }}>
+                                                {t}
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
+                                {Array.isArray(contact.enrichment.tech_stack) && contact.enrichment.tech_stack.length > 0 && (
+                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                        {contact.enrichment.tech_stack.map((t, idx) => (
+                                            <span key={`tech-${idx}`} style={{ padding: '2px 8px', borderRadius: 999, background: 'var(--color-surface-container)', color: 'var(--color-text-secondary)', fontSize: 11, border: '1px solid var(--color-border)' }}>
+                                                {t}
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         )}
 

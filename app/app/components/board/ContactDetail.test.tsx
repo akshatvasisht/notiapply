@@ -10,6 +10,8 @@ vi.mock('@/lib/db', () => ({
     hasDatabase: vi.fn().mockReturnValue(true),
     updateContactResponse: vi.fn(),
     addContactInteraction: vi.fn(),
+    updateContactNotes: vi.fn().mockResolvedValue(undefined),
+    requestContactReenrichment: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@/lib/llm', () => ({
@@ -330,5 +332,93 @@ describe('ContactDetail', () => {
         expect(screen.queryByText(/Draft →/)).not.toBeInTheDocument();
         // Copy button only exists in the draft envelope panel
         expect(screen.queryByRole('button', { name: /^Copy$/i })).not.toBeInTheDocument();
+    });
+
+    // ── Enrichment card + Refresh button (C-01) ───────────────────────────────
+
+    it('hides the Refresh button when enrichment_status is not "completed"', async () => {
+        const pendingContact = makeContact({
+            name: 'No Enrichment',
+            company_name: 'Acme',
+            enrichment_status: 'pending',
+            enrichment: null,
+        });
+        await act(async () => {
+            render(
+                <ContactDetail
+                    contact={pendingContact}
+                    jobs={mockJobs}
+                    onClose={mockOnClose}
+                    onStateChange={mockOnStateChange}
+                    onContactUpdated={mockOnContactUpdated}
+                />
+            );
+        });
+        expect(screen.queryByRole('button', { name: /Refresh/i })).not.toBeInTheDocument();
+    });
+
+    it('renders the Refresh button when enrichment_status is "completed"', async () => {
+        const enrichedContact = makeContact({
+            name: 'Has Enrichment',
+            company_name: 'Acme',
+            enrichment_status: 'completed',
+            enriched_at: new Date().toISOString(),
+            enrichment: {
+                schema_version: 1,
+                summary: 'Backend engineer.',
+                topics: ['databases'],
+                tech_stack: ['Go'],
+                recent_themes: [],
+            },
+        });
+        await act(async () => {
+            render(
+                <ContactDetail
+                    contact={enrichedContact}
+                    jobs={mockJobs}
+                    onClose={mockOnClose}
+                    onStateChange={mockOnStateChange}
+                    onContactUpdated={mockOnContactUpdated}
+                />
+            );
+        });
+        expect(screen.getByRole('button', { name: /Refresh/i })).toBeInTheDocument();
+        // Enrichment summary + chips should also render.
+        expect(screen.getByText('Backend engineer.')).toBeInTheDocument();
+        expect(screen.getByText('databases')).toBeInTheDocument();
+        expect(screen.getByText('Go')).toBeInTheDocument();
+    });
+
+    it('calls requestContactReenrichment and patches onContactUpdated when Refresh clicked', async () => {
+        const { requestContactReenrichment } = await import('@/lib/db');
+        const enrichedContact = makeContact({
+            id: 77,
+            name: 'Target',
+            company_name: 'Acme',
+            enrichment_status: 'completed',
+            enriched_at: new Date().toISOString(),
+            enrichment: {
+                schema_version: 1,
+                summary: 's', topics: [], tech_stack: [], recent_themes: [],
+            },
+        });
+        await act(async () => {
+            render(
+                <ContactDetail
+                    contact={enrichedContact}
+                    jobs={mockJobs}
+                    onClose={mockOnClose}
+                    onStateChange={mockOnStateChange}
+                    onContactUpdated={mockOnContactUpdated}
+                />
+            );
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: /Refresh/i }));
+        });
+        expect(requestContactReenrichment).toHaveBeenCalledWith(77);
+        expect(mockOnContactUpdated).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 77, enrichment_status: 'pending' })
+        );
     });
 });

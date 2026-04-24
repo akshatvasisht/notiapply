@@ -14,7 +14,10 @@ This document details the architectural layout, core components, and data lifecy
   - **Tier 4**: Complex JS-rendered state blobs (Wellfound via CF-Clearance).
 - **Scrapling + Camoufox**: The browser-fingerprint spoofing layer used by Tier 4 (Wellfound) to transparently bypass Cloudflare without a proxy or paid service.
 - **n8n Orchestrator**: The workflow engine responsible for handling incoming webhook triggers, dispatching scraper runs via HTTP to the runner service, and inserting structured results into the Postgres database.
-- **Runner Service**: A FastAPI container (`deploy/docker/runner.Dockerfile`) that lives alongside n8n and postgres in the compose stack. n8n calls it over the compose internal network; the runner subprocess-dispatches to the existing Python scripts under `server/scraper/`.
+- **Runner Service**: A FastAPI container (`deploy/docker/runner.Dockerfile`) that lives alongside n8n and postgres in the compose stack. n8n calls it over the compose internal network; the runner subprocess-dispatches to the existing Python scripts under `server/scraper/` (and `server/gmail_watcher.py`) via `SCRIPT_MAP` keyed by module name. Image ships with a pinned static Tectonic binary (`ARG TECTONIC_VERSION` in the Dockerfile) plus a build-time `preload.tex` pass that primes the TeX Live package cache.
+- **Pipeline Modules (built-in, configurable via `pipeline_modules` table)**: `liveness-check` (dead-posting detection), `filter` (relevance gate), `extract-job-contacts` + `outreach-drafting` (contact sourcing + cold-message composer), `enrich-contacts` (scrapling + trafilatura + LLM for personal-URL structured facts; YC API fast-path for YC-batched companies), `doc-generation` + `cover-letter` (subtractive resume tailoring + cover letter expansion → tectonic PDFs), `gmail-watch` (Gmail reply detection).
+- **Sources (simple on/off toggles, via `user_config.config.scrapers_enabled`)**: `jobspy`, `ats-direct`, `github`, `wellfound`, `outreach-yc`, `outreach-github`. Scrapers live here rather than in `pipeline_modules` because they have no per-module config worth exposing — it's just "run this cron or not". n8n workflows should read the JSONB array and dispatch only to enabled scrapers.
+- Fill-session completion notifications are fired by the desktop app itself (native OS notification via the browser `Notification` API inside the Tauri webview; toggled by `notifications_enabled` in user_config).
 
 ---
 
@@ -60,9 +63,11 @@ Notiapply maps entirely to a local execution environment or a self-hosted instan
 - Operates on a strict "one job per invocation" model to guarantee runtime isolation.
 
 **3. The Python Fleet (`server/`)**
-- Four independent python scripts that connect out to varying data sources.
+- Thirteen+ independent python scripts that connect out to varying data sources (see Glossary for the module list).
 - Operates statelessly. Python scraper and generator code runs inside a FastAPI `runner` container; n8n invokes it via HTTP on the compose internal network, and the runner subprocess-dispatches to the underlying scripts.
-- `apply_diff.py` acts as the document mutation engine, combining LLM-generated bullet injections with the Master Resume template.
+- `apply_diff.py` acts as the document mutation engine, combining LLM-generated bullet injections with the Master Resume template. Callable both as a CLI and as an importable function; `server/scraper/doc_generation.py` calls it directly (no subprocess round-trip).
+- `server/scraper/crypto_helper.py` exposes `decrypt_config(cfg)` which every consumer of `user_config` secrets wraps around its SELECT result — decrypts the 8 `SENSITIVE_CFG_FIELDS` written encrypted by the frontend's `updateSecureConfig`.
+- `server/gmail_auth.py` + `server/gmail_auth_init.py` — shared OAuth helpers for `gmail_watcher.py` (reply detection) and `check_verification_email.py` (ATS email verification). Credentials live in a host-mounted `deploy/docker/gmail/` volume so the runner container never opens a browser.
 
 **4. The PostgreSQL Database**
 - The absolute source of truth.
@@ -80,11 +85,16 @@ Notiapply maps entirely to a local execution environment or a self-hosted instan
 3. The scrapers generate deduplicated hashes based on `title + company + location` and insert new rows into the `jobs` table with a state of `discovered`.
 
 **Phase 2: LLM Mutation**
-1. A secondary n8n workflow detects the `incoming` job.
-2. It hits the Gemini LLM endpoint with the job description and the user's master resume.
-3. The LLM selects high-relevance experience/project blocks using `% <BLOCK:Name>` tags and generates a tailored diff for the remaining content.
-4. `apply_diff.py` performs block-level truncation, modifies the LaTeX template, and compiles the new `resume_{job_id}.pdf`.
-5. The job state advances to `queued`.
+1. A secondary n8n workflow detects the `filtered` job (after the `filter` module runs) and hits `POST /run/doc-generation` on the runner.
+2. `doc_generation.py` calls the configured LLM endpoint (OpenAI-compatible `/v1/chat/completions` shape required — OpenAI, Gemini `/v1beta/openai`, OpenRouter, Ollama, LiteLLM proxy, etc.) with the job description + master resume preamble; response is a JSON diff containing `blocks_to_keep`, `bullets_swapped`, `keywords_added`, and `cover_emphasis`.
+3. `apply_diff.py` performs block-level truncation + bullet rewrites + keyword injection on the master LaTeX; the result compiles via the bundled `tectonic` binary into `applications.resume_pdf` bytes.
+4. The job state advances from `filtered` → `queued`. On any per-job error, the state flips to `docs-failed` with a short `docs_fail_reason`; a "Retry docs" button in Focus Mode resets it back to `filtered` for the next pipeline tick.
+5. `POST /run/cover-letter` (execution_order 30) runs afterwards on applications where `resume_pdf IS NOT NULL AND cover_letter_pdf IS NULL`. It LLM-expands the `{{BODY}}` placeholder of the active `cover_letter_templates` row using `resume_diffs.cover_emphasis` + configured tone (professional / enthusiastic / technical), substitutes `{{COMPANY}}` + `{{POSITION}}` + `{{BODY}}`, compiles via tectonic, and writes `cover_letter_pdf`. Best-effort — failures log but don't change job state.
+
+**Phase 2.5: Contact Enrichment & Outreach**
+1. `enrich-contacts` runs on contacts with a `personal_url`. The YC API fast-path handles YC-batched companies (free, structured) before falling back to scrapling + trafilatura + LLM extraction for general sites. Writes structured facts (`summary`, `topics`, `tech_stack`, `recent_themes`, optional `yc_meta`) to `contacts.enrichment` JSONB. Stale-refresh cadence is configurable (`refresh_days`, default 90; 0 disables). SSRF guard blocks RFC1918 / link-local / metadata hosts.
+2. `outreach-drafting` composes cold outreach messages per contact. Writes `drafted_message`.
+3. `gmail-watch` polls Gmail for replies from `state='contacted'` contacts, dedupes on `message_id` in `interaction_log`, flips `state → replied` on match.
 
 ### Tailoring Methodology
 

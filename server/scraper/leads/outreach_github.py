@@ -51,12 +51,18 @@ class GithubOutreachScraper(BaseScraper):
                     if not name:
                         name = username
                         
+                    # The GitHub `blog` field is a free-text website URL, not LinkedIn.
+                    # Route to linkedin_url only if it's an actual LinkedIn profile;
+                    # otherwise treat as a personal/portfolio URL for enrichment.
+                    blog = (user_data.get("blog") or "").strip()
+                    is_linkedin = "linkedin.com/in/" in blog
                     contacts.append({
                         "name": name,
                         "role": "Engineer",
                         "company_name": org,
-                        "linkedin_url": user_data.get("blog"),
-                        "email": user_data.get("email")
+                        "linkedin_url": blog if is_linkedin else None,
+                        "personal_url": blog if blog and not is_linkedin else None,
+                        "email": user_data.get("email"),
                     })
             except Exception:
                 continue

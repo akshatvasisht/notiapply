@@ -12,7 +12,6 @@ import { generateBatchMessages } from '@/lib/llm';
 import ContactColumn from './ContactColumn';
 import ContactMetricsCompact from './metrics/ContactMetricsCompact';
 import ContactActions from './actions/ContactActions';
-import ContactReminders from './ContactReminders';
 import Modal from '../common/Modal';
 import Toast from '../common/Toast';
 
@@ -58,7 +57,7 @@ export default function ContactsBoard({
     const [_internalSearch, _setInternalSearch] = useState('');
     const searchQuery = externalSearch ?? _internalSearch;
     const setSearchQuery = onExternalSearchChange ?? _setInternalSearch;
-    const { selectedIds: selectedContactIds, handleCardClick: handleCardClickRaw, selectAll: selectAllContactIds, clearSelection: clearContactSelection, setSelectedIds: setSelectedContactIds } = useCardSelection<Contact>();
+    const { selectedIds: selectedContactIds, handleCardClick: handleCardClickRaw, selectAll: selectAllContactIds, clearSelection: clearContactSelection } = useCardSelection<Contact>();
     const useMockData = contactsData === MOCK_CONTACTS;
     const [draggedContactId, setDraggedContactId] = useState<number | null>(null);
     const draggedContactIdRef = useRef<number | null>(null);
@@ -270,7 +269,7 @@ export default function ContactsBoard({
                 <line x1="12" y1="17" x2="12.01" y2="17" />
             </svg>
             <span style={{ fontSize: 13, color: 'var(--color-warning)', fontWeight: 500 }}>
-                Preview Mode: Using mock data (database not connected)
+                Preview — representative data only (database not connected)
             </span>
         </div>
     ) : null;
@@ -278,23 +277,6 @@ export default function ContactsBoard({
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
             {mockDataBanner}
-            <ContactReminders
-                contacts={contacts}
-                hidden={!!focusedContact}
-                onFilterOverdue={() => {
-                    // Filter to show only overdue contacts
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    const overdueIds = contacts
-                        .filter(c => {
-                            if (!c.follow_up_date) return false;
-                            const followUpDate = new Date(c.follow_up_date);
-                            return followUpDate <= today && ['contacted', 'replied'].includes(c.state);
-                        })
-                        .map(c => c.id);
-                    setSelectedContactIds(new Set(overdueIds));
-                }}
-            />
 
             <div style={{
                 display: 'flex', flex: 1, gap: 8, padding: '8px 12px',

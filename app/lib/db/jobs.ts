@@ -30,6 +30,23 @@ export async function getJobById(id: number): Promise<Job | null> {
     return rows[0] ?? null;
 }
 
+/**
+ * Retry a job stuck in `docs-failed`. Flips state back to 'filtered' and
+ * clears docs_fail_reason so the next doc-generation pipeline tick picks
+ * it up. Guarded: only runs if the row is STILL in 'docs-failed' at
+ * UPDATE time (race-safe vs. manual state edits). (C-02)
+ */
+export async function retryDocs(id: number): Promise<void> {
+    await getPool().query(
+        `UPDATE jobs
+            SET state = 'filtered',
+                docs_fail_reason = NULL,
+                updated_at = NOW()
+          WHERE id = $1 AND state = 'docs-failed'`,
+        [id]
+    );
+}
+
 /** H-02 fix: validates state before update */
 export async function updateJobState(id: number, state: string): Promise<void> {
     if (!VALID_JOB_STATES.has(state)) {

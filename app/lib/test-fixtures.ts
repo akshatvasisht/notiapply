@@ -47,7 +47,12 @@ export function makeContact(overrides: Partial<Contact> = {}): Contact {
         send_at: null,
         sent_at: null,
         bounce_type: null,
+        bounce_reason: null,
         unsubscribed_at: null,
+        personal_url: null,
+        enrichment: null,
+        enrichment_status: 'pending',
+        enriched_at: null,
         ...overrides,
     } as Contact;
 }
@@ -114,7 +119,6 @@ export function makeApplication(overrides: Partial<Application> = {}): Applicati
 
 export function makeUserConfig(overrides: Partial<UserConfig> = {}): UserConfig {
     return {
-        llm_provider: 'openai',
         llm_endpoint: 'https://api.openai.com/v1/chat/completions',
         llm_api_key: 'test-api-key',
         llm_model: 'gpt-4',

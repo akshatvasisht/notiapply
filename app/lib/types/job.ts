@@ -10,8 +10,6 @@ export type JobSource =
     | 'ats-greenhouse' | 'ats-lever' | 'ats-ashby'
     | 'github-simplify' | 'wellfound' | 'manual';
 
-export type ScraperStatus = 'running' | 'success' | 'failed';
-
 export interface Job {
     id: number;
     source: JobSource;
@@ -200,17 +198,6 @@ export interface ScrapedCompany {
     ats_slug: string;
     active: boolean;
     added_at: string;
-}
-
-export interface ScraperRun {
-    id: number;
-    scraper_key: string;
-    started_at: string;
-    completed_at: string | null;
-    jobs_found: number;
-    errors: string[] | null;
-    status: ScraperStatus;
-    version: string | null;
 }
 
 export interface CallbackStats {

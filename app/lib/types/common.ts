@@ -2,7 +2,32 @@
 
 export type PipelinePhase = 'scraping' | 'processing' | 'output';
 
-export type LLMProvider = 'openai' | 'anthropic' | 'gemini' | 'local';
+/** Scraper keys enabled from the Settings → Sources toggles.
+ *
+ * These live in `user_config.scrapers_enabled` rather than as rows in
+ * `pipeline_modules`, since every scraper has the same shape (enable/disable,
+ * nothing to configure per-source beyond what lives in search_terms / locations).
+ * n8n workflows should read this list and only call `/run/scrape-<key>` for
+ * enabled entries.
+ */
+export const SCRAPER_KEYS = [
+    'jobspy',
+    'ats-direct',
+    'github',
+    'wellfound',
+    'outreach-yc',
+    'outreach-github',
+] as const;
+export type ScraperKey = typeof SCRAPER_KEYS[number];
+
+export const SCRAPER_LABELS: Record<ScraperKey, string> = {
+    'jobspy': 'Job Boards (JobSpy)',
+    'ats-direct': 'Company Watchlist (ATS Direct)',
+    'github': 'GitHub (SimplifyJobs)',
+    'wellfound': 'Wellfound',
+    'outreach-yc': 'Startup Founders (YC)',
+    'outreach-github': 'Lead Engineering Strategy (GitHub)',
+};
 
 export interface Application {
     id: number;
@@ -44,7 +69,8 @@ export interface PipelineModule {
 
 export interface UserConfig {
     github_token?: string;
-    ntfy_topic?: string;
+    notifications_enabled?: boolean;
+    scrapers_enabled?: ScraperKey[];
     cloudflare_email_domain?: string;
     application_email_catch_all?: string;
     ats_shared_password?: string;
@@ -60,7 +86,6 @@ export interface UserConfig {
     relevance_threshold?: number;
     n8n_webhook_url?: string;
     n8n_webhook_secret?: string;
-    llm_provider?: LLMProvider;
     llm_endpoint?: string;
     llm_api_key?: string;
     llm_model?: string;

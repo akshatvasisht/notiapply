@@ -46,16 +46,23 @@ export const JobSourceSchema = z.enum([
     'manual',
 ]);
 
-export const LLMProviderSchema = z.enum(['openai', 'anthropic', 'gemini', 'local']);
-
-export const ScraperStatusSchema = z.enum(['running', 'success', 'failed']);
-
 // ─── Nested Object Schemas ──────────────────────────────────────────────────
 
 export const InteractionLogEntrySchema = z.object({
     timestamp: z.string().datetime(),
     event: z.string().min(1),
     notes: z.string().optional(),
+    message_id: z.string().optional(),
+});
+
+export const EnrichmentStatusSchema = z.enum(['pending', 'completed', 'failed', 'skipped']);
+
+export const ContactEnrichmentSchema = z.object({
+    schema_version: z.number().int().positive(),
+    summary: z.string(),
+    topics: z.array(z.string()),
+    tech_stack: z.array(z.string()),
+    recent_themes: z.array(z.string()),
 });
 
 // ─── Main Entity Schemas ────────────────────────────────────────────────────
@@ -66,6 +73,7 @@ export const ContactSchema = z.object({
     role: z.string().nullable(),
     company_name: z.string().min(1),
     linkedin_url: z.string().nullable(),
+    personal_url: z.string().nullable().optional(),
     email: z.string().email().nullable(),
     drafted_message: z.string().nullable(),
     notes: z.string().nullable(),
@@ -92,6 +100,11 @@ export const ContactSchema = z.object({
     bounce_type: z.enum(['hard', 'soft']).nullable().default(null),
     bounce_reason: z.string().nullable().optional(),
     unsubscribed_at: z.string().datetime().nullable().default(null),
+    // enrichment is stored as free-form JSONB; accept the documented shape but
+    // tolerate schema_version drift so older/newer rows round-trip safely.
+    enrichment: z.record(z.string(), z.unknown()).nullable().optional(),
+    enrichment_status: EnrichmentStatusSchema.default('pending'),
+    enriched_at: z.string().datetime().nullable().optional(),
 });
 
 export const JobSchema = z.object({
@@ -152,7 +165,10 @@ export const ApplicationSchema = z.object({
 export const UserConfigSchema = z.object({
     // Tokens & secrets
     github_token: z.string().optional(),
-    ntfy_topic: z.string().optional(),
+    notifications_enabled: z.boolean().optional(),
+    scrapers_enabled: z.array(z.enum([
+        'jobspy', 'ats-direct', 'github', 'wellfound', 'outreach-yc', 'outreach-github',
+    ])).optional(),
     cloudflare_email_domain: z.string().optional(),
     application_email_catch_all: z.string().optional(),
     ats_shared_password: z.string().optional(),
@@ -180,7 +196,6 @@ export const UserConfigSchema = z.object({
     }).optional(),
     // Webhooks & LLM
     n8n_webhook_url: z.string().url().optional(),
-    llm_provider: LLMProviderSchema.optional(),
     llm_endpoint: z.string().url().optional(),
     llm_api_key: z.string().optional(),
     llm_model: z.string().optional(),
@@ -211,19 +226,6 @@ export const UserConfigSchema = z.object({
     email_imap_port: z.number().optional(),
     email_imap_secure: z.boolean().optional(),
     email_verification_timeout: z.number().optional(),
-});
-
-// ─── API Response Schemas ───────────────────────────────────────────────────
-
-export const ScraperRunSchema = z.object({
-    id: z.number().int().positive(),
-    scraper_key: z.string().min(1),
-    version: z.string().nullable(),
-    status: ScraperStatusSchema,
-    jobs_found: z.number().int().nonnegative().nullable(),
-    errors: z.array(z.string()).nullable(),
-    started_at: z.string().datetime(),
-    completed_at: z.string().datetime().nullable(),
 });
 
 // ─── Validation Helper Functions ────────────────────────────────────────────
@@ -277,4 +279,3 @@ export type ValidatedContact = z.infer<typeof ContactSchema>;
 export type ValidatedJob = z.infer<typeof JobSchema>;
 export type ValidatedApplication = z.infer<typeof ApplicationSchema>;
 export type ValidatedUserConfig = z.infer<typeof UserConfigSchema>;
-export type ValidatedScraperRun = z.infer<typeof ScraperRunSchema>;

@@ -47,7 +47,11 @@ CREATE TABLE user_config (
   CONSTRAINT single_row CHECK (id = 1)
 );
 
-INSERT INTO user_config (config) VALUES ('{}');
+-- Seed defaults: all 6 scrapers enabled; desktop notifications on.
+-- Users toggle these via Settings → Sources and Settings → Notifications.
+INSERT INTO user_config (config) VALUES (
+    '{"scrapers_enabled": ["jobspy", "ats-direct", "github", "wellfound", "outreach-yc", "outreach-github"], "notifications_enabled": true}'
+);
 
 COMMENT ON COLUMN user_config.browser_agent_enabled       IS 'Enable LLM-powered browser automation';
 COMMENT ON COLUMN user_config.browser_agent_auto_login    IS 'Auto-login and account creation';
@@ -96,6 +100,13 @@ CREATE TABLE cover_letter_templates (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   is_active     BOOLEAN NOT NULL DEFAULT TRUE
 );
+
+-- At most one is_active=true row per template table (the doc-gen +
+-- cover-letter modules do `LIMIT 1` and expect a single active row).
+CREATE UNIQUE INDEX idx_master_resume_single_active
+    ON master_resume(is_active) WHERE is_active = true;
+CREATE UNIQUE INDEX idx_cover_letter_templates_single_active
+    ON cover_letter_templates(is_active) WHERE is_active = true;
 
 -- ════════════════════════════════════════════════════════════════════════════
 -- Scraped companies + github poll state
@@ -257,6 +268,11 @@ CREATE TABLE contacts (
   job_id                    INTEGER REFERENCES jobs(id) ON DELETE SET NULL,
   scraped_company_id        INTEGER REFERENCES scraped_companies(id),
   contact_hash              CHAR(64) UNIQUE,
+  personal_url              TEXT,
+  enrichment                JSONB,
+  enrichment_status         TEXT NOT NULL DEFAULT 'pending'
+    CHECK (enrichment_status IN ('pending', 'completed', 'failed', 'skipped')),
+  enriched_at               TIMESTAMPTZ,
   created_at                TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at                TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -270,15 +286,21 @@ CREATE INDEX idx_contacts_follow_up          ON contacts(follow_up_date)
     WHERE follow_up_date IS NOT NULL AND state IN ('contacted', 'replied');
 CREATE INDEX idx_contacts_enrichment         ON contacts(company_name)
     WHERE company_industry IS NULL;
+CREATE INDEX idx_contacts_enrichment_pending ON contacts(enrichment_status)
+    WHERE enrichment_status IN ('pending', 'failed');
 CREATE INDEX idx_contacts_email_queue        ON contacts(send_at)
     WHERE send_at IS NOT NULL AND sent_at IS NULL AND bounce_type IS NULL;
 
-COMMENT ON COLUMN contacts.follow_up_date   IS 'When to next reach out (NULL = no follow-up scheduled)';
-COMMENT ON COLUMN contacts.intro_source     IS 'How you met this person (warm intro, cold LinkedIn DM, YC founder list, etc.)';
-COMMENT ON COLUMN contacts.interaction_log  IS 'Array of {timestamp, event, notes} objects tracking outreach history';
-COMMENT ON COLUMN contacts.got_response     IS 'NULL = not yet contacted, TRUE = they replied, FALSE = ghosted';
-COMMENT ON COLUMN contacts.department       IS 'Department/function (Engineering, Product, Sales, etc.)';
-COMMENT ON COLUMN contacts.source           IS 'Discovery origin (job_description_email, linkedin_search, yc_scraper, etc.)';
+COMMENT ON COLUMN contacts.follow_up_date    IS 'When to next reach out (NULL = no follow-up scheduled)';
+COMMENT ON COLUMN contacts.intro_source      IS 'How you met this person (warm intro, cold LinkedIn DM, YC founder list, etc.)';
+COMMENT ON COLUMN contacts.interaction_log   IS 'Array of {timestamp, event, notes} objects tracking outreach history';
+COMMENT ON COLUMN contacts.got_response      IS 'NULL = not yet contacted, TRUE = they replied, FALSE = ghosted';
+COMMENT ON COLUMN contacts.department        IS 'Department/function (Engineering, Product, Sales, etc.)';
+COMMENT ON COLUMN contacts.source            IS 'Discovery origin (job_description_email, linkedin_search, yc_scraper, etc.)';
+COMMENT ON COLUMN contacts.personal_url      IS 'Personal website / blog / portfolio URL. Source for contacts.enrichment. NOT a LinkedIn profile — those live in linkedin_url.';
+COMMENT ON COLUMN contacts.enrichment        IS 'Structured LLM output: {schema_version, summary, topics[], tech_stack[], recent_themes[], yc_meta?}';
+COMMENT ON COLUMN contacts.enrichment_status IS 'Lifecycle of enrich-contacts processing for this row';
+COMMENT ON COLUMN contacts.enriched_at       IS 'When enrichment_status last transitioned to completed/failed';
 COMMENT ON COLUMN contacts.bounce_reason    IS 'Full SMTP error detail (e.g. "550 5.1.1 User not found")';
 
 CREATE TRIGGER contacts_updated_at_trigger
@@ -334,48 +356,11 @@ SELECT DISTINCT ON (scraper_key)
 -- Seed: built-in pipeline modules
 -- ════════════════════════════════════════════════════════════════════════════
 
+-- NOTE: scraper on/off lives in user_config.config.scrapers_enabled (see seed
+-- row above). Only processors with real per-module config are listed here.
 INSERT INTO pipeline_modules
   (key, name, description, phase, execution_order, enabled, is_builtin, n8n_workflow_id, config_schema, dependencies)
 VALUES
-  ('scrape-jobspy',
-   'Job Boards (JobSpy)',
-   'LinkedIn, Indeed, Glassdoor, ZipRecruiter via speedyapply/JobSpy.',
-   'scraping', 10, true, true, '01-scrape-jobspy',
-   '{"type":"object","properties":{"sources":{"type":"array","title":"Active sources","items":{"type":"string","enum":["linkedin","indeed","glassdoor","zip_recruiter"]}},"results_per_source":{"type":"number","title":"Results per source","default":50}}}'::jsonb,
-   '{}'),
-
-  ('scrape-ats-direct',
-   'Company Watchlist (ATS Direct)',
-   'Greenhouse, Lever, and Ashby public APIs for companies in your watchlist.',
-   'scraping', 20, true, true, '02-scrape-ats-direct',
-   NULL, '{}'),
-
-  ('scrape-github',
-   'GitHub (SimplifyJobs)',
-   'SimplifyJobs/New-Grad-Positions — commit-polled markdown table.',
-   'scraping', 30, true, true, '03-scrape-github',
-   NULL, '{}'),
-
-  ('scrape-wellfound',
-   'Wellfound',
-   'Best-effort. Uses CF-Clearance-Scraper; breaks when Cloudflare updates.',
-   'scraping', 40, false, true, '04-scrape-wellfound',
-   NULL, '{}'),
-
-  ('scrape-outreach-yc',
-   'Startup Founders (YC)',
-   'Scrapes founder names and LinkedIn pages dynamically from YCombinator based on user-defined slugs.',
-   'scraping', 50, true, true, '13-scrape-outreach-yc',
-   '{"type":"object","properties":{"yc_slugs":{"type":"array","title":"Target YC Slugs","items":{"type":"string"}}}}'::jsonb,
-   '{}'),
-
-  ('scrape-outreach-github',
-   'Lead Engineering Strategy (GitHub)',
-   'Polls open-source GitHub organizations to find primary contributors and scrape their public email + name for direct cold outreach.',
-   'scraping', 60, true, true, '10-scrape-outreach-github',
-   '{"type":"object","properties":{"github_orgs":{"type":"array","title":"Target GitHub Orgs","items":{"type":"string"}}}}'::jsonb,
-   '{}'),
-
   ('liveness-check',
    'Liveness Check',
    'HEAD-checks job URLs to detect dead postings (404/410, redirect-to-listing, stale phrasing). Marks dead jobs is_live=false and transitions to filtered-out.',
@@ -405,17 +390,26 @@ VALUES
    'Resume Tailoring',
    'LLM diff against master resume + tectonic PDF compilation.',
    'processing', 20, true, true, '06-doc-generation',
-   NULL, '{}'),
+   '{"type":"object","properties":{"batch_size":{"type":"integer","title":"Jobs per run","default":5,"minimum":1,"maximum":20},"llm_model_override":{"type":"string","title":"LLM model override (optional)","description":"Leave blank to use the provider default. Power users may prefer a larger model (e.g. claude-sonnet-4-6) for resume tailoring even if cheaper models drive outreach."}}}'::jsonb,
+   '{}'),
 
   ('cover-letter',
    'Cover Letter',
    'LLM-expanded cover letter compiled to PDF. Requires Resume Tailoring.',
    'processing', 30, true, true, '07-cover-letter',
-   NULL, '{"doc-generation"}'),
+   '{"type":"object","properties":{"batch_size":{"type":"integer","title":"Applications per run","default":5,"minimum":1,"maximum":20},"tone":{"type":"string","title":"Tone","enum":["professional","enthusiastic","technical"],"default":"professional"}}}'::jsonb,
+   '{"doc-generation"}'),
 
-  ('notifications',
-   'Notifications',
-   'ntfy.sh push notification when a scrape run completes with queued jobs.',
-   'output', 10, true, true, '08-notifications',
-   '{"type":"object","properties":{"title":{"type":"string","title":"Notification title","default":"Notiapply"},"message":{"type":"string","title":"Override message (otherwise auto-summary)"},"priority":{"type":"string","title":"Priority","enum":["min","low","default","high","urgent"],"default":"default"},"tags":{"type":"array","title":"Tags","items":{"type":"string"}}}}'::jsonb,
+  ('enrich-contacts',
+   'Contact Enrichment',
+   'Fetches contact personal_url via scrapling + trafilatura, LLM-extracts structured facts (summary, topics, tech stack, recent themes) into contacts.enrichment.',
+   'processing', 14, true, true, '14-enrich-contacts',
+   '{"type":"object","properties":{"batch_size":{"type":"integer","title":"Contacts per run","default":10,"minimum":1,"maximum":100},"rate_limit_s":{"type":"number","title":"Per-URL delay (s)","default":2,"minimum":0},"refresh_days":{"type":"integer","title":"Re-enrich after (days, 0 disables)","default":90,"minimum":0,"maximum":365}}}'::jsonb,
+   '{}'),
+
+  ('gmail-watch',
+   'Gmail Reply Watcher',
+   'Polls Gmail for replies from contacts in state=contacted; flips got_response and appends a message-id-keyed entry to interaction_log.',
+   'output', 20, true, true, '15-gmail-watch',
+   '{"type":"object","properties":{"lookback_days":{"type":"integer","title":"Lookback window (days)","default":14,"minimum":1,"maximum":30},"batch_size":{"type":"integer","title":"Contacts per run","default":100,"minimum":1,"maximum":500}}}'::jsonb,
    '{}');

@@ -7,6 +7,31 @@ export interface InteractionLogEntry {
     timestamp: string;
     event: string;
     notes?: string;
+    message_id?: string;  // Gmail message id, present for Email reply entries (dedupe key)
+}
+
+export type EnrichmentStatus = 'pending' | 'completed' | 'failed' | 'skipped';
+
+/** Structured YC API metadata written by the C-04 fast-path when
+ * `server/scraper/enrich_contacts.py` resolves a company against
+ * `api.ycombinator.com`. Absent on non-YC contacts. */
+export interface YCMeta {
+    funding_stage?: string | null;      // e.g. "S20"
+    headcount_range?: string | null;    // e.g. "~8000"
+    description?: string | null;
+    website?: string | null;
+    is_hiring?: boolean;
+}
+
+export interface ContactEnrichment {
+    schema_version: number;
+    summary: string;
+    topics: string[];
+    tech_stack: string[];
+    recent_themes: string[];
+    /** Populated only when the YC fast-path hit in enrich_contacts.py.
+     * Consumers should treat as optional. */
+    yc_meta?: YCMeta;
 }
 
 export interface Contact {
@@ -15,6 +40,7 @@ export interface Contact {
     role: string | null;
     company_name: string;
     linkedin_url: string | null;
+    personal_url: string | null;            // blog / portfolio URL; source for enrichment
     email: string | null;
     drafted_message: string | null;
     notes: string | null;
@@ -45,6 +71,10 @@ export interface Contact {
     bounce_type: 'hard' | 'soft' | null;
     bounce_reason: string | null;
     unsubscribed_at: string | null;
+    // Contact enrichment (populated by enrich-contacts pipeline module)
+    enrichment: ContactEnrichment | null;
+    enrichment_status: EnrichmentStatus;
+    enriched_at: string | null;      // ISO TIMESTAMPTZ
 }
 
 export type ContactBoardColumn = 'identified' | 'drafted' | 'contacted' | 'replied' | 'rejected';

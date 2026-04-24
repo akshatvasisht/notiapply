@@ -43,13 +43,11 @@ export default memo(function ContactColumn({
                     onDragOver={onDragOver}
                     onDrop={onDrop}
                     style={{
+                        flex: 1,
                         minHeight: 200,
                         display: 'flex',
                         flexDirection: 'column',
                         gap: 8,
-                        background: isDragOver ? 'var(--color-primary-container)' : 'transparent',
-                        borderRadius: 8,
-                        transition: 'background 0.2s',
                     }}
                 >
                     {contacts.length === 0 ? (

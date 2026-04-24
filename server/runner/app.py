@@ -30,9 +30,12 @@ SCRIPT_MAP: Dict[str, str] = {
     "scrape-outreach-yc": "scraper/leads/outreach_yc.py",
     "liveness-check": "scraper/liveness_check.py",
     "extract-job-contacts": "scraper/leads/job_contact_extractor.py",
+    "enrich-contacts": "scraper/enrich_contacts.py",
     "filter": "scraper/filter.py",
     "outreach-drafting": "scraper/outreach_drafting.py",
-    "notifications": "scraper/notifications.py",
+    "doc-generation": "scraper/doc_generation.py",
+    "cover-letter": "scraper/cover_letter.py",
+    "gmail-watch": "gmail_watcher.py",
 }
 
 

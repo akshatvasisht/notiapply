@@ -1,7 +1,14 @@
-/** LLM integration for draft message generation with multi-provider support */
+/** LLM integration for draft message generation.
+ *
+ * Requires an OpenAI-compatible endpoint. Works natively with OpenAI, Gemini
+ * (via `/v1beta/openai`), OpenRouter, Ollama, LM Studio, vLLM, DeepSeek, Groq,
+ * Together, Fireworks, etc. For Anthropic Claude direct, route through
+ * OpenRouter or LiteLLM; the native Anthropic /v1/messages format is no
+ * longer supported directly.
+ */
 
 import { logger } from './logger';
-import type { Contact, UserConfig, LLMProvider } from './types';
+import type { Contact, UserConfig } from './types';
 import { getUserConfig } from './db';
 
 export interface DraftMessageRequest {
@@ -43,12 +50,11 @@ export async function generateDraftMessage(request: DraftMessageRequest): Promis
     };
 
     try {
-        const provider = config.llm_provider ?? 'gemini';
-        const requestBody = buildProviderRequest(provider, llmRequest, config);
+        const requestBody = buildLLMRequest(llmRequest, config);
 
         const response = await fetch(config.llm_endpoint, {
             method: 'POST',
-            headers: buildProviderHeaders(provider, config.llm_api_key),
+            headers: buildLLMHeaders(config.llm_api_key),
             body: JSON.stringify(requestBody),
         });
 
@@ -57,7 +63,7 @@ export async function generateDraftMessage(request: DraftMessageRequest): Promis
         }
 
         const data = await response.json();
-        const message = extractMessage(data, provider);
+        const message = extractMessage(data);
 
         return message.trim();
     } catch (error) {
@@ -66,62 +72,29 @@ export async function generateDraftMessage(request: DraftMessageRequest): Promis
     }
 }
 
-// ─── Provider-Specific Request Builders ────────────────────────────────────
+// ─── Request / Response Shape (OpenAI chat-completions) ────────────────────
 
-export function buildProviderHeaders(provider: LLMProvider, apiKey: string): Record<string, string> {
-    const headers: Record<string, string> = {
+export function buildLLMHeaders(apiKey: string): Record<string, string> {
+    return {
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
     };
-
-    switch (provider) {
-        case 'openai':
-        case 'gemini':
-            headers['Authorization'] = `Bearer ${apiKey}`;
-            break;
-        case 'anthropic':
-            headers['x-api-key'] = apiKey;
-            headers['anthropic-version'] = '2023-06-01';
-            break;
-    }
-
-    return headers;
 }
 
-export function buildProviderRequest(
-    provider: LLMProvider,
+export function buildLLMRequest(
     request: LLMRequest,
     config: UserConfig
 ): Record<string, unknown> {
     const { systemPrompt, userPrompt, maxTokens, temperature } = request;
-
-    switch (provider) {
-        case 'openai':
-        case 'gemini':
-            // OpenAI-compatible format (Gemini uses OpenAI-compatible API)
-            return {
-                model: config.llm_model ?? 'gemini-1.5-flash',
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: userPrompt },
-                ],
-                max_tokens: maxTokens,
-                temperature,
-            };
-
-        case 'anthropic':
-            return {
-                model: config.llm_model ?? 'claude-3-5-sonnet-20241022',
-                system: systemPrompt,
-                messages: [
-                    { role: 'user', content: userPrompt },
-                ],
-                max_tokens: maxTokens,
-                temperature,
-            };
-
-        default:
-            throw new Error(`Unsupported LLM provider: ${provider}`);
-    }
+    return {
+        model: config.llm_model ?? 'gemini-1.5-flash',
+        messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+        ],
+        max_tokens: maxTokens,
+        temperature,
+    };
 }
 
 /**
@@ -298,46 +271,35 @@ Requirements:
     return parts.join(' ');
 }
 
-export function extractMessage(data: unknown, provider: LLMProvider): string {
+export function extractMessage(data: unknown): string {
     if (!data || typeof data !== 'object') {
-        throw new Error(`Invalid ${provider} response: not an object`);
+        throw new Error('Invalid LLM response: not an object');
     }
 
     const res = data as Record<string, unknown>;
 
-    switch (provider) {
-        case 'openai':
-        case 'gemini':
-            // OpenAI format (also used by Gemini's OpenAI-compatible API)
-            if (Array.isArray(res.choices) && res.choices.length > 0) {
-                const choice = res.choices[0] as Record<string, unknown>;
-                const message = choice.message as Record<string, unknown>;
-                if (typeof message?.content === 'string') {
-                    return message.content;
-                }
-            }
-            // Fallback to Gemini native format
-            if (Array.isArray(res.candidates) && res.candidates.length > 0) {
-                const candidate = res.candidates[0] as Record<string, unknown>;
-                const content = candidate.content as Record<string, unknown>;
-                if (Array.isArray(content?.parts) && content.parts.length > 0) {
-                    const part = content.parts[0] as Record<string, unknown>;
-                    if (typeof part?.text === 'string') {
-                        return part.text;
-                    }
-                }
-            }
-            break;
-
-        case 'anthropic':
-            if (Array.isArray(res.content) && res.content.length > 0) {
-                const block = res.content[0] as Record<string, unknown>;
-                if (typeof block?.text === 'string') {
-                    return block.text;
-                }
-            }
-            break;
+    // OpenAI chat-completions shape — the common path.
+    if (Array.isArray(res.choices) && res.choices.length > 0) {
+        const choice = res.choices[0] as Record<string, unknown>;
+        const message = choice.message as Record<string, unknown>;
+        if (typeof message?.content === 'string') {
+            return message.content;
+        }
     }
 
-    throw new Error(`Unexpected ${provider} response format: ${JSON.stringify(data)}`);
+    // Gemini native-endpoint fallback — kept so users hitting
+    // `generativelanguage.googleapis.com/v1beta/models/...:generateContent`
+    // (the non-openai path) still work without config changes.
+    if (Array.isArray(res.candidates) && res.candidates.length > 0) {
+        const candidate = res.candidates[0] as Record<string, unknown>;
+        const content = candidate.content as Record<string, unknown>;
+        if (Array.isArray(content?.parts) && content.parts.length > 0) {
+            const part = content.parts[0] as Record<string, unknown>;
+            if (typeof part?.text === 'string') {
+                return part.text;
+            }
+        }
+    }
+
+    throw new Error(`Unexpected LLM response format: ${JSON.stringify(data)}`);
 }

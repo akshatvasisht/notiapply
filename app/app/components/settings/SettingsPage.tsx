@@ -13,9 +13,11 @@ import {
 import {
     getPipelineModules, toggleModule,
     updateModuleOrder, addCustomModule, deleteModule, updateModuleConfig,
+    uploadMasterResume, uploadCoverLetterTemplate,
 } from '@/lib/db';
 import { getSecureConfig, updateSecureConfig } from '@/lib/secure-config';
-import type { UserConfig, PipelineModule, LLMProvider } from '@/lib/types';
+import type { UserConfig, PipelineModule } from '@/lib/types';
+import { SCRAPER_KEYS, SCRAPER_LABELS } from '@/lib/types';
 import { logger } from '@/lib/logger';
 import { MOCK_CONFIG, MOCK_MODULES } from '@/lib/mock-data';
 import SourceLegend from './SourceLegend';
@@ -25,6 +27,7 @@ import { Section } from './SettingsSection';
 import { Field, FieldWithTest } from './SettingsField';
 import { TagFieldInline } from './TagFieldInline';
 import { SortableModuleRow, AddModuleModal } from './PipelineModules';
+import { LatexUploader } from './LatexUploader';
 
 export default function SettingsPage({ onBack }: { onBack: () => void }) {
     const [config, setConfig] = useState<UserConfig>({});
@@ -128,6 +131,34 @@ export default function SettingsPage({ onBack }: { onBack: () => void }) {
 
             <div style={{ flex: 1, overflowY: 'auto', padding: 24, maxWidth: 640, margin: '0 auto', width: '100%', minHeight: 0 }}>
 
+                {/* Sources — simple enable/disable toggles per scraper */}
+                <Section title="Sources">
+                    <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 12, lineHeight: 1.5 }}>
+                        Which scrapers the pipeline should run. n8n reads this list before dispatching each scrape cron tick.
+                    </p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {SCRAPER_KEYS.map(key => {
+                            const enabled = (config.scrapers_enabled ?? [...SCRAPER_KEYS]).includes(key);
+                            return (
+                                <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', fontSize: 13, color: 'var(--color-text-primary)', cursor: 'pointer' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={enabled}
+                                        onChange={e => {
+                                            const current = config.scrapers_enabled ?? [...SCRAPER_KEYS];
+                                            const next = e.target.checked
+                                                ? Array.from(new Set([...current, key]))
+                                                : current.filter(k => k !== key);
+                                            patch({ scrapers_enabled: next });
+                                        }}
+                                    />
+                                    <span>{SCRAPER_LABELS[key]}</span>
+                                </label>
+                            );
+                        })}
+                    </div>
+                </Section>
+
                 {/* Pipeline Modules */}
                 <Section title="Pipeline">
                     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -158,29 +189,10 @@ export default function SettingsPage({ onBack }: { onBack: () => void }) {
 
                 {/* LLM */}
                 <Section title="LLM">
-                    <div style={{ marginBottom: 12 }}>
-                        <label htmlFor="llm-provider-select" style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-tertiary)', display: 'block', marginBottom: 4 }}>Provider</label>
-                        <select
-                            id="llm-provider-select"
-                            value={config.llm_provider ?? 'openai'}
-                            onChange={e => patch({ llm_provider: e.target.value as LLMProvider })}
-                            style={{
-                                width: '100%',
-                                padding: '8px 12px',
-                                fontSize: 13,
-                                borderRadius: 6,
-                                border: '1px solid var(--color-border)',
-                                background: 'var(--color-surface)',
-                                color: 'var(--color-text-primary)',
-                                outline: 'none'
-                            }}
-                        >
-                            <option value="openai">OpenAI</option>
-                            <option value="anthropic">Anthropic</option>
-                            <option value="gemini">Google Gemini</option>
-                            <option value="local">Local LLM (Ollama, LM Studio)</option>
-                        </select>
-                    </div>
+                    <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 12, lineHeight: 1.5 }}>
+                        Any OpenAI-compatible endpoint: OpenAI, Gemini (via{' '}
+                        <code style={{ fontSize: 11 }}>/v1beta/openai</code>), OpenRouter, Ollama, LM Studio, etc. For Claude, use OpenRouter.
+                    </p>
                     <FieldWithTest
                         label="Endpoint"
                         value={config.llm_endpoint ?? ''}
@@ -207,6 +219,26 @@ export default function SettingsPage({ onBack }: { onBack: () => void }) {
                     />
                     <Field label="API Key" value={config.llm_api_key ?? ''} onChange={v => patch({ llm_api_key: v })} type="password" placeholder="Optional for local LLMs" />
                     <Field label="Model" value={config.llm_model ?? 'gemini-1.5-flash'} onChange={v => patch({ llm_model: v })} placeholder="e.g. gpt-4o-mini, claude-3-5-sonnet-20241022" />
+                </Section>
+
+                {/* Resume & Cover Letter Templates */}
+                <Section title="Resume & Cover Letter Templates">
+                    <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 12 }}>
+                        LaTeX sources the <code>doc-generation</code> and <code>cover-letter</code> pipeline modules tailor per job.
+                        Uploading a new file replaces the active template (the previous row stays in history as <code>is_active=false</code>).
+                        The master resume should use <code>% &lt;BLOCK:Name&gt;...% &lt;ENDBLOCK:Name&gt;</code> markers for subtractive tailoring and
+                        a <code>% SKILLS_INJECT_POINT</code> marker near the skills line for keyword injection.
+                    </div>
+                    <LatexUploader
+                        label="Master Resume (.tex)"
+                        description="Applied by the doc-generation module."
+                        onUpload={uploadMasterResume}
+                    />
+                    <LatexUploader
+                        label="Cover Letter Template (.tex)"
+                        description="Filled by the cover-letter module. Must include {{COMPANY}}, {{POSITION}}, and {{BODY}} placeholders."
+                        onUpload={uploadCoverLetterTemplate}
+                    />
                 </Section>
 
                 {/* Browser Agent */}
@@ -363,7 +395,17 @@ export default function SettingsPage({ onBack }: { onBack: () => void }) {
 
                 {/* Notifications */}
                 <Section title="Notifications & Email">
-                    <Field label="ntfy.sh Topic" value={config.ntfy_topic ?? ''} onChange={v => patch({ ntfy_topic: v })} />
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, fontSize: 13, color: 'var(--color-text-primary)', cursor: 'pointer' }}>
+                        <input
+                            type="checkbox"
+                            checked={config.notifications_enabled !== false}
+                            onChange={e => patch({ notifications_enabled: e.target.checked })}
+                        />
+                        <span>Desktop notifications when a fill session completes</span>
+                    </label>
+                    <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 12, lineHeight: 1.5 }}>
+                        Fires once per session. First time, the OS asks for permission. Uncheck to disable without revoking permission.
+                    </p>
                     <Field label="Cloudflare Email Domain (optional)" value={config.cloudflare_email_domain ?? ''} onChange={v => patch({ cloudflare_email_domain: v })} placeholder="yourdomain.com" />
                 </Section>
 

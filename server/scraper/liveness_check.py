@@ -55,28 +55,20 @@ def _make_opener():
 
 
 def _redirect_looks_dead(original_url: str, redirect_url: str, company: str) -> bool:
-    """Heuristic: redirect target is a generic listing page, not the specific job."""
-    company_slug = company.lower().replace(" ", "").replace("-", "")
-    redirect_lower = redirect_url.lower()
+    """Heuristic: redirect target is exactly a generic listing page or root.
 
-    # If the company name (slugified) appears in the redirect URL, probably still live
-    if company_slug and company_slug in redirect_lower.replace("-", "").replace("_", ""):
-        return False
-
-    # Check whether any meaningful path component from the original URL survived
+    Default is False (alive). Returns True only when the final redirect lands
+    on a path that exactly matches one of the known generic listing pages.
+    This is deliberately conservative — false positives silently archive jobs
+    the user would have wanted to see, so we treat ambiguous redirects as live
+    and let the user judge from the board. The `company` arg is kept for
+    signature stability but no longer used; the old slug-matching heuristic
+    was too speculative on SPAs.
+    """
+    _ = original_url, company  # intentionally unused — kept for signature stability
     from urllib.parse import urlparse
-    orig_path_parts = [p for p in urlparse(original_url).path.split("/") if len(p) > 4]
-    redir_path = urlparse(redirect_url).path
-    for part in orig_path_parts:
-        if part in redir_path:
-            return False
-
-    # Redirect to root or a generic /jobs page → dead
-    redir_path_stripped = redir_path.strip("/")
-    if redir_path_stripped in ("", "jobs", "careers", "job-search", "positions"):
-        return True
-
-    return True  # When in doubt, treat redirects to unrelated paths as dead
+    redir_path = urlparse(redirect_url).path.strip("/")
+    return redir_path in ("", "jobs", "careers", "job-search", "positions")
 
 
 def check_url(url: str, company: str) -> tuple[bool, str]:

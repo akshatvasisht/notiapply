@@ -260,71 +260,77 @@ def run(payload: Dict[str, Any], *, processor=None) -> Dict[str, Any]:
         cur.close()
 
         for contact_id, personal_url, contact_company_name in rows:
-            # Fast-path: YC API returns structured data for YC-backed companies,
-            # bypassing the LLM + crawler entirely. Free, rate-unlimited.
-            if contact_company_name:
-                try:
-                    yc_data = fetch_yc_company(contact_company_name)
-                except Exception as exc:  # noqa: BLE001
-                    yc_data = None
-                    errors.append(f"yc api {contact_id}: {exc}")
+            # Track whether this iteration hit the network so the rate-limit
+            # sleep fires once per real external request (success OR failure),
+            # but NOT on pure-local skips (SSRF guard rejection).
+            did_network_io = False
+            try:
+                # Fast-path: YC API returns structured data for YC-backed companies,
+                # bypassing the LLM + crawler entirely. Free, rate-unlimited.
+                if contact_company_name:
+                    did_network_io = True
+                    try:
+                        yc_data = fetch_yc_company(contact_company_name)
+                    except Exception as exc:  # noqa: BLE001
+                        yc_data = None
+                        errors.append(f"yc api {contact_id}: {exc}")
 
-                if yc_data:
-                    enrichment = {
-                        "schema_version": ENRICHMENT_SCHEMA_VERSION,
-                        "summary": (yc_data.get("description") or "")[:240],
-                        "topics": [],
-                        "tech_stack": [],
-                        "recent_themes": [],
-                        "yc_meta": yc_data,
-                    }
-                    _mark_completed(conn, contact_id, enrichment)
-                    enriched += 1
-                    print(
-                        f"enrich-contacts: contact #{contact_id} enriched via YC fast-path",
-                        file=sys.stderr,
-                    )
-                    if rate_limit_s:
-                        time.sleep(rate_limit_s)
+                    if yc_data:
+                        enrichment = {
+                            "schema_version": ENRICHMENT_SCHEMA_VERSION,
+                            "summary": (yc_data.get("description") or "")[:240],
+                            "topics": [],
+                            "tech_stack": [],
+                            "recent_themes": [],
+                            "yc_meta": yc_data,
+                        }
+                        _mark_completed(conn, contact_id, enrichment)
+                        enriched += 1
+                        print(
+                            f"enrich-contacts: contact #{contact_id} enriched via YC fast-path",
+                            file=sys.stderr,
+                        )
+                        continue
+
+                ok, reason = _url_is_safe(personal_url)
+                if not ok:
+                    # Pure-local rejection: skip the throttle (no remote host was contacted).
+                    skipped_guard += 1
+                    _mark_skipped(conn, contact_id, reason)
                     continue
 
-            ok, reason = _url_is_safe(personal_url)
-            if not ok:
-                skipped_guard += 1
-                _mark_skipped(conn, contact_id, reason)
-                continue
+                try:
+                    did_network_io = True
+                    markdown = processor.enrich_url(personal_url)
+                except Exception as exc:  # noqa: BLE001
+                    failed += 1
+                    errors.append(f"fetch {personal_url}: {exc}")
+                    _mark_failed(conn, contact_id)
+                    continue
 
-            try:
-                markdown = processor.enrich_url(personal_url)
-            except Exception as exc:  # noqa: BLE001
-                failed += 1
-                errors.append(f"fetch {personal_url}: {exc}")
-                _mark_failed(conn, contact_id)
-                continue
+                try:
+                    headers, body = _build_llm_request(cfg, markdown)
+                    data = _call_llm(endpoint, headers, body)
+                    raw_text = _extract_text(data)
+                except Exception as exc:  # noqa: BLE001
+                    failed += 1
+                    errors.append(f"llm {contact_id}: {exc}")
+                    _mark_failed(conn, contact_id)
+                    continue
 
-            try:
-                headers, body = _build_llm_request(cfg, markdown)
-                data = _call_llm(endpoint, headers, body)
-                raw_text = _extract_text(data)
-            except Exception as exc:  # noqa: BLE001
-                failed += 1
-                errors.append(f"llm {contact_id}: {exc}")
-                _mark_failed(conn, contact_id)
-                continue
+                parsed = _parse_enrichment(raw_text)
+                if parsed is None:
+                    failed += 1
+                    errors.append(f"parse {contact_id}: LLM returned malformed JSON")
+                    _mark_failed(conn, contact_id)
+                    continue
 
-            parsed = _parse_enrichment(raw_text)
-            if parsed is None:
-                failed += 1
-                errors.append(f"parse {contact_id}: LLM returned malformed JSON")
-                _mark_failed(conn, contact_id)
-                continue
-
-            _mark_completed(conn, contact_id, parsed)
-            enriched += 1
-            print(f"enrich-contacts: contact #{contact_id} enriched", file=sys.stderr)
-
-            if rate_limit_s:
-                time.sleep(rate_limit_s)
+                _mark_completed(conn, contact_id, parsed)
+                enriched += 1
+                print(f"enrich-contacts: contact #{contact_id} enriched", file=sys.stderr)
+            finally:
+                if did_network_io and rate_limit_s:
+                    time.sleep(rate_limit_s)
 
     finally:
         conn.close()

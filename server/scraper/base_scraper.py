@@ -8,7 +8,6 @@ from openai import OpenAI
 from typing import List, Dict, Any, Type, Optional
 from pydantic import BaseModel
 from datetime import datetime
-from .job_relevance import should_auto_filter
 from .log_config import configure_logging
 import structlog
 import subprocess
@@ -27,9 +26,10 @@ except ImportError:
     Fetcher = None  # type: ignore[assignment]
 
 try:
-    from .job_relevance import JobRelevanceScorer
+    from .job_relevance import JobRelevanceScorer, should_auto_filter
 except ImportError:
     JobRelevanceScorer = None  # type: ignore[assignment]
+    should_auto_filter = None  # type: ignore[assignment]
 
 configure_logging()
 

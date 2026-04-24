@@ -94,7 +94,9 @@ def _build_llm_request(cfg: Dict[str, Any], user_prompt: str) -> tuple[Dict[str,
     etc. For native Anthropic Claude, users must route through OpenRouter or
     a LiteLLM proxy.
     """
-    model = cfg.get("llm_model_override") or cfg.get("llm_model") or "gemini-1.5-flash"
+    model = cfg.get("llm_model_override") or cfg.get("llm_model")
+    if not model:
+        raise RuntimeError("llm_model not configured in user_config")
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {cfg.get('llm_api_key') or ''}",
@@ -123,8 +125,12 @@ def _call_llm(endpoint: str, headers: Dict[str, str], body: Dict[str, Any], time
         headers=headers,
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        body_text = (exc.read() or b"").decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"LLM HTTP {exc.code}: {body_text[:500]}") from exc
 
 
 def _parse_llm_diff(raw: str) -> Optional[Dict[str, Any]]:
@@ -182,6 +188,23 @@ def _compile_pdf(tex_source: str) -> bytes:
         if not pdf_path.is_file():
             raise RuntimeError("tectonic produced no PDF")
         return pdf_path.read_bytes()
+
+
+def _truncate_at_block_boundary(latex: str, limit: int) -> str:
+    """Truncate at the last `% <ENDBLOCK:...>` marker before `limit` so apply_diff
+    sees only matched BLOCK/ENDBLOCK pairs. If no ENDBLOCK exists before the
+    limit, the full text is returned (better to send the whole thing than to
+    cut mid-block)."""
+    if len(latex) <= limit:
+        return latex
+    head = latex[:limit]
+    last_end = head.rfind("% <ENDBLOCK:")
+    if last_end < 0:
+        return latex  # no block markers — safe to leave raw; apply_diff falls back to bullet swaps
+    # Walk forward to include the full "% <ENDBLOCK:Name>\n" line.
+    newline = latex.find("\n", last_end)
+    cut = newline + 1 if newline > 0 else len(latex)
+    return latex[:cut]
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -317,14 +340,15 @@ def run(payload: Dict[str, Any]) -> Dict[str, Any]:
         cfg = _load_llm_config(cur)
         endpoint = cfg.get("llm_endpoint")
         api_key = cfg.get("llm_api_key")
+        model = cfg.get("llm_model_override") or cfg.get("llm_model")
 
-        if not endpoint or not api_key:
+        if not endpoint or not api_key or not model:
             cur.close()
             return {
                 "generated": 0,
                 "failed": 0,
-                "no_op": 0,
-                "errors": ["LLM endpoint/api_key not configured in user_config"],
+                "no_op": 1,
+                "errors": ["LLM endpoint/api_key/model not configured in user_config"],
             }
 
         master = _load_active_master(cur)
@@ -340,6 +364,14 @@ def run(payload: Dict[str, Any]) -> Dict[str, Any]:
 
         jobs = _fetch_eligible_jobs(cur, batch_size)
         cur.close()
+        if not jobs:
+            no_op = 1
+
+        # Truncate master_latex at a block boundary so apply_diff's BLOCK/ENDBLOCK
+        # regex always sees matched pairs. A raw [:16000] slice can cut through
+        # "% <BLOCK:Name>" mid-block, causing the subsequent ENDBLOCK lookup to
+        # silently drop all later blocks.
+        master_latex_truncated = _truncate_at_block_boundary(master_latex, 16000)
 
         for job in jobs:
             try:
@@ -347,7 +379,7 @@ def run(payload: Dict[str, Any]) -> Dict[str, Any]:
                     title=job["title"],
                     company=job["company"],
                     description=(job["description_raw"] or "")[:8000],
-                    master_latex=master_latex[:16000],
+                    master_latex=master_latex_truncated,
                 )
                 headers, body = _build_llm_request(cfg, user_prompt)
                 data = _call_llm(endpoint, headers, body)

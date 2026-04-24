@@ -14,7 +14,7 @@ import type { Job, Contact, UserConfig, PipelineModule, ScrapedCompany } from '.
 const hoursAgo = (h: number) => new Date(Date.now() - h * 60 * 60_000).toISOString();
 const daysAgo = (d: number) => new Date(Date.now() - d * 24 * 60 * 60_000).toISOString();
 
-// ─── Jobs (8) — covers all 5 columns + docs-failed + callback tracking ──────
+// ─── Jobs (8) — 5 Kanban columns + docs-failed + callback-tracker + tracking state ──
 
 export const MOCK_JOBS: Job[] = [
     {

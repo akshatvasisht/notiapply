@@ -25,7 +25,7 @@ import json
 import os
 import sys
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import psycopg2
 
@@ -118,8 +118,19 @@ def _find_replies(service, contacts: List[Dict[str, Any]], lookback_days: int) -
     email_filter = " OR ".join(c["email"] for c in contacts)
     query = f"from:({email_filter}) after:{after}"
 
-    results = service.users().messages().list(userId="me", q=query, maxResults=500).execute()
-    messages = results.get("messages", [])
+    # Paginate so we don't silently drop replies past the 500-message first page.
+    # Gmail returns nextPageToken when there's more; loop until exhausted.
+    messages: List[Dict[str, Any]] = []
+    page_token: Optional[str] = None
+    while True:
+        kwargs: Dict[str, Any] = {"userId": "me", "q": query, "maxResults": 500}
+        if page_token:
+            kwargs["pageToken"] = page_token
+        results = service.users().messages().list(**kwargs).execute()
+        messages.extend(results.get("messages", []))
+        page_token = results.get("nextPageToken")
+        if not page_token:
+            break
 
     by_email = {c["email"]: c for c in contacts}
     replies: List[Dict[str, Any]] = []
@@ -217,7 +228,10 @@ if __name__ == "__main__":
     raw = sys.argv[1] if len(sys.argv) > 1 else "{}"
     try:
         payload = json.loads(raw)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
+        # Surface the parse error so an operator can tell "malformed argv" from
+        # "valid payload, missing DB_URL". The run() return shape is preserved.
+        print(f"gmail-watch: JSON parse error for argv[1]: {exc}", file=sys.stderr)
         payload = {}
     result = run(payload)
     print(json.dumps(result))

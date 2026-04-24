@@ -46,6 +46,7 @@ def _stub_conn(*, jobs=None, has_master=True, cfg_valid=True):
         cfg_row = ({
             "llm_endpoint": "https://api.stub/v1/chat/completions",
             "llm_api_key": "sk-stub",
+            "llm_model": "gpt-4o-mini",
         },)
     else:
         cfg_row = ({},)
@@ -134,6 +135,22 @@ class TestRunGuards:
         result = run({"db_url": "postgres://stub"})
         assert result["generated"] == 0
         assert any("LLM" in e for e in result["errors"])
+
+    @patch("scraper.doc_generation.psycopg2.connect")
+    def test_missing_llm_model_is_rejected(self, mock_connect):
+        """Regression guard: missing llm_model must NOT silently default to
+        gemini-1.5-flash (which would misroute to the user's configured
+        endpoint). Same failure mode as missing endpoint/api_key."""
+        conn = _stub_conn()
+        # Replace the cfg row with one missing llm_model.
+        conn._load_cur.fetchone.side_effect = [
+            ({"llm_endpoint": "https://api.stub/v1/chat/completions", "llm_api_key": "sk-stub"},),
+            None,  # master_resume — unreachable
+        ]
+        mock_connect.return_value = conn
+        result = run({"db_url": "postgres://stub"})
+        assert result["generated"] == 0
+        assert any("model" in e.lower() for e in result["errors"])
 
     @patch("scraper.doc_generation.psycopg2.connect")
     def test_missing_master_resume(self, mock_connect):

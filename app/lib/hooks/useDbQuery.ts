@@ -20,14 +20,20 @@ export function useDbQuery<T>(
     const [data, setData] = useState<T | null>(() => getCached<T>(key) ?? fallback ?? null);
     const [loading, setLoading] = useState<boolean>(dbAvailable && !getCached(key));
     const [error, setError] = useState<Error | null>(null);
+    // Mirror fetcher + fallback into refs so `refresh` stays stable across renders
+    // even when callers pass a new fallback object or inline fetcher on every render.
     const fetcherRef = useRef(fetcher);
+    const fallbackRef = useRef(fallback);
     useEffect(() => {
         fetcherRef.current = fetcher;
     }, [fetcher]);
+    useEffect(() => {
+        fallbackRef.current = fallback;
+    }, [fallback]);
 
     const refresh = useCallback(() => {
         if (!dbAvailable) {
-            if (fallback !== undefined) setData(fallback);
+            if (fallbackRef.current !== undefined) setData(fallbackRef.current);
             setLoading(false);
             return;
         }
@@ -42,10 +48,10 @@ export function useDbQuery<T>(
             })
             .catch(err => {
                 setError(err);
-                if (fallback !== undefined) setData(fallback);
+                if (fallbackRef.current !== undefined) setData(fallbackRef.current);
             })
             .finally(() => setLoading(false));
-    }, [key, fallback, dbAvailable]);
+    }, [key, dbAvailable]);
 
     useEffect(() => {
         if (!dbAvailable) return;

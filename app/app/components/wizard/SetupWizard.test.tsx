@@ -112,7 +112,7 @@ describe('SetupWizard', () => {
             );
         }
 
-        // @ts-expect-error
+        // @ts-expect-error -- NODE_ENV is read-only in TS typings; reassigning for test isolation
         process.env.NODE_ENV = originalEnv;
     });
 

@@ -22,10 +22,17 @@ RUN apt-get update \
 # Bump via `docker compose build --build-arg TECTONIC_VERSION=0.17.0 runner`
 # when upstream cuts a new release. Release list:
 #   https://github.com/tectonic-typesetting/tectonic/releases
+ARG TARGETARCH
 ARG TECTONIC_VERSION=0.16.9
-RUN curl -fsSL "https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic@${TECTONIC_VERSION}/tectonic-${TECTONIC_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
-        | tar -xz -C /usr/local/bin tectonic \
-    && tectonic --version
+RUN set -eux; \
+    case "${TARGETARCH:-amd64}" in \
+        amd64) arch="x86_64-unknown-linux-musl" ;; \
+        arm64) arch="aarch64-unknown-linux-musl" ;; \
+        *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic@${TECTONIC_VERSION}/tectonic-${TECTONIC_VERSION}-${arch}.tar.gz" \
+        | tar -xz -C /usr/local/bin tectonic; \
+    tectonic --version
 
 WORKDIR /app
 

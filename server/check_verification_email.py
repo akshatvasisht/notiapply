@@ -20,7 +20,7 @@ import sys
 from typing import Optional
 
 try:
-    from gmail_auth import get_gmail_service  # noqa: F401  (re-exported for tests)
+    from gmail_auth import get_gmail_service
 except ImportError:
     print(json.dumps({"error": "Gmail API not installed"}), file=sys.stderr)
     sys.exit(1)

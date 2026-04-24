@@ -73,6 +73,12 @@ services:
       GMAIL_CREDENTIALS_DIR: /app/credentials
     volumes:
       # Read-write: google-auth rewrites gmail_token.json on refresh (~1h cadence).
+      # Heads-up: the runner container runs as root (python:3.12-slim default),
+      # so files rewritten here (e.g. refreshed gmail_token.json) end up
+      # root-owned on the host. If you bootstrapped the token as a non-root
+      # user with `python server/gmail_auth_init.py`, a later `sudo chown`
+      # or a one-off `docker run --rm -v "$PWD/gmail:/c" alpine chown -R
+      # "$(id -u):$(id -g)" /c` will hand it back.
       - ./gmail:/app/credentials
       # Tectonic downloads TeX Live packages on demand. Keeping this as a named
       # volume means the preload RUN layer in runner.Dockerfile primes it once

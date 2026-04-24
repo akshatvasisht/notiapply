@@ -175,7 +175,8 @@ def run(db_url: str, module_config: dict):
     try:
         cur = conn.cursor()
         cur.execute("SELECT config FROM user_config WHERE id = 1")
-        config = decrypt_config(cur.fetchone()[0] or {})
+        row = cur.fetchone()
+        config = decrypt_config((row[0] if row else {}) or {})
         cur.close()
 
         repos = config.get("github_repos", ["SimplifyJobs/New-Grad-Positions"])

@@ -1,3 +1,5 @@
+'use client';
+
 /** OS-native notifications via the browser Notification API.
  *
  * Works in Tauri's webview (macOS WebKit, Windows WebView2, Linux WebKitGTK) —

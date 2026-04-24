@@ -17,6 +17,7 @@ Prerequisites:
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -55,16 +56,29 @@ def main() -> int:
         )
         return 2
 
-    print(f"Starting OAuth flow (browser will open)…")
+    print("Starting OAuth flow (browser will open)…")
     flow = InstalledAppFlow.from_client_secrets_file(str(credentials_file), SCOPES)
     creds = flow.run_local_server(port=0)
-    token_file.write_text(creds.to_json())
 
-    # Lock down permissions so a leak is less catastrophic.
+    # Create the token file atomically at mode 0o600 so there's no window where
+    # the token is world-readable (write_text() + chmod() leave the file at the
+    # umask-derived default for a moment). os.open sets perms at create time.
+    token_bytes = creds.to_json().encode("utf-8")
     try:
-        token_file.chmod(0o600)
+        fd = os.open(str(token_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(token_bytes)
+        except Exception:
+            os.close(fd)
+            raise
     except OSError:
-        pass  # Windows / non-POSIX — best-effort.
+        # Windows / non-POSIX: fall back to the plain write (no atomic perm bits).
+        token_file.write_text(creds.to_json())
+        try:
+            token_file.chmod(0o600)
+        except OSError:
+            pass
 
     print(f"\n✓ Token saved to {token_file}")
     print("Next step: docker compose up -d && docker compose restart runner")

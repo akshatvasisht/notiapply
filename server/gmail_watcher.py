@@ -20,6 +20,7 @@ Stderr is used for human-readable progress.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sys
@@ -37,7 +38,10 @@ from gmail_auth import get_gmail_service
 
 
 def _fetch_awaiting_contacts(db_url: str, batch_size: int) -> List[Dict[str, Any]]:
-    with psycopg2.connect(db_url) as conn, conn.cursor() as cur:
+    # psycopg2's connect-as-ctx-manager commits/rolls back on exit but does NOT
+    # close the connection — wrap with contextlib.closing() so both the tx and
+    # the connection are cleaned up in one idiomatic block.
+    with contextlib.closing(psycopg2.connect(db_url)) as conn, conn, conn.cursor() as cur:
         cur.execute(
             """
             SELECT id, name, email, company_name, last_contacted_at, interaction_log
@@ -81,7 +85,7 @@ def _record_reply(db_url: str, contact_id: int, reply: Dict[str, Any]) -> None:
         "notes": f"Subject: {reply['subject']} — {reply['snippet'][:140]}",
         "message_id": reply["message_id"],
     }
-    with psycopg2.connect(db_url) as conn, conn.cursor() as cur:
+    with contextlib.closing(psycopg2.connect(db_url)) as conn, conn, conn.cursor() as cur:
         cur.execute(
             """
             UPDATE contacts
@@ -92,7 +96,6 @@ def _record_reply(db_url: str, contact_id: int, reply: Dict[str, Any]) -> None:
             """,
             (json.dumps(entry), contact_id),
         )
-        conn.commit()
 
 
 # ──────────────────────────────────────────────────────────────────────────────

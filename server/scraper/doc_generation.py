@@ -175,8 +175,8 @@ def _compile_pdf(tex_source: str) -> bytes:
         except subprocess.CalledProcessError as exc:
             err_tail = (exc.stderr or b"")[-400:].decode("utf-8", errors="replace")
             raise RuntimeError(f"tectonic failed: {err_tail}") from exc
-        except subprocess.TimeoutExpired:
-            raise RuntimeError(f"tectonic timed out after {TECTONIC_TIMEOUT_S}s")
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(f"tectonic timed out after {TECTONIC_TIMEOUT_S}s") from exc
 
         pdf_path = Path(tmp) / "resume.pdf"
         if not pdf_path.is_file():
@@ -229,6 +229,9 @@ def _fetch_eligible_jobs(cur, batch_size: int) -> List[Dict[str, Any]]:
 
 
 def _create_application(conn, job_id: int, master_resume_id: int) -> int:
+    """Insert the applications row. Caller owns the transaction commit — if a
+    later persist/transition step fails, `conn.rollback()` discards this insert
+    so we don't leak an orphan applications row."""
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -239,11 +242,11 @@ def _create_application(conn, job_id: int, master_resume_id: int) -> int:
             (job_id, master_resume_id),
         )
         app_id = cur.fetchone()[0]
-    conn.commit()
     return app_id
 
 
 def _persist_docs(conn, app_id: int, tex: str, pdf_bytes: bytes, diff: Dict[str, Any], llm_raw: str) -> None:
+    """Persist tailored docs. Caller owns the transaction commit."""
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -267,17 +270,15 @@ def _persist_docs(conn, app_id: int, tex: str, pdf_bytes: bytes, diff: Dict[str,
                 diff.get("cover_emphasis"),
             ),
         )
-    conn.commit()
 
 
 def _transition_queued(conn, job_id: int) -> None:
-    """Race-safe: only transition if still in 'filtered'."""
+    """Race-safe: only transition if still in 'filtered'. Caller owns the commit."""
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE jobs SET state = 'queued' WHERE id = %s AND state = 'filtered'",
             (job_id,),
         )
-    conn.commit()
 
 
 def _mark_failed(conn, job_id: int, reason: str) -> None:
@@ -339,7 +340,6 @@ def run(payload: Dict[str, Any]) -> Dict[str, Any]:
 
         jobs = _fetch_eligible_jobs(cur, batch_size)
         cur.close()
-        no_op = 0 if jobs else 0
 
         for job in jobs:
             try:
@@ -390,12 +390,13 @@ def run(payload: Dict[str, Any]) -> Dict[str, Any]:
                 app_id = _create_application(conn, job["id"], master_id)
                 _persist_docs(conn, app_id, tailored_tex, pdf_bytes, diff, raw_text)
                 _transition_queued(conn, job["id"])
+                conn.commit()  # atomic: all three steps or none (no orphan applications row)
                 generated += 1
                 print(f"doc-generation: job #{job['id']} queued (app #{app_id})", file=sys.stderr)
             except Exception as exc:  # noqa: BLE001
+                conn.rollback()
                 failed += 1
                 errors.append(f"job {job['id']}: persist: {exc}")
-                conn.rollback()
                 _mark_failed(conn, job["id"], f"persist: {exc}")
                 continue
 

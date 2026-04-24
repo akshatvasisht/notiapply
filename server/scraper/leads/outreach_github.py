@@ -55,7 +55,7 @@ class GithubOutreachScraper(BaseScraper):
                     # Route to linkedin_url only if it's an actual LinkedIn profile;
                     # otherwise treat as a personal/portfolio URL for enrichment.
                     blog = (user_data.get("blog") or "").strip()
-                    is_linkedin = "linkedin.com/in/" in blog
+                    is_linkedin = "linkedin.com/in/" in blog.lower()
                     contacts.append({
                         "name": name,
                         "role": "Engineer",

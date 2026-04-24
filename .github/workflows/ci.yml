@@ -89,18 +89,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install dbmate
+      - name: Install psql client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Apply migrations
+        env:
+          PGPASSWORD: test
         run: |
-          curl -fsSL https://github.com/amacneil/dbmate/releases/latest/download/dbmate-linux-amd64 -o dbmate
-          chmod +x dbmate
-          sudo mv dbmate /usr/local/bin/
-
-      - name: Run migrations
-        env:
-          DATABASE_URL: postgres://test:test@localhost:5432/notiapply_test?sslmode=disable
-        run: dbmate up
-
-      - name: Check migrations can be rolled back
-        env:
-          DATABASE_URL: postgres://test:test@localhost:5432/notiapply_test?sslmode=disable
-        run: dbmate down && dbmate up
+          set -euo pipefail
+          shopt -s nullglob
+          files=( migrations/*.sql )
+          if (( ${#files[@]} == 0 )); then
+            echo "error: no migrations found in ./migrations" >&2
+            exit 1
+          fi
+          IFS=$'\n' files=($(printf '%s\n' "${files[@]}" | sort))
+          unset IFS
+          for f in "${files[@]}"; do
+            echo "applying: $(basename "$f")"
+            psql -h localhost -U test -d notiapply_test -v ON_ERROR_STOP=1 -f "$f"
+          done

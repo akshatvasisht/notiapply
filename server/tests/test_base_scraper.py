@@ -18,6 +18,9 @@ from pydantic import BaseModel
 class MockScraper(BaseScraper):
     """Concrete implementation of BaseScraper for testing"""
 
+    def extract_jobs(self, *args, **kwargs):
+        return []
+
     def scrape(self):
         pass
 

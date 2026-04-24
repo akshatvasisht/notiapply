@@ -15,11 +15,21 @@ import subprocess
 import time
 import random
 
-# NOTE: scrapling.Fetcher is lazy-imported inside BaseScraper.__init__ to keep
-# this module (and its downstream importers like test_base_scraper.py) loadable
-# in test environments without playwright — scrapling transitively imports
-# playwright._impl._errors, which isn't installed in lightweight venvs.
-# The Docker runner image has the full dep chain; production is unaffected.
+# Guarded imports for scrapling.Fetcher and JobRelevanceScorer: exposed at module
+# scope so test_base_scraper.py's @patch('scraper.base_scraper.Fetcher') works,
+# but wrapped in try/except so this module still loads in test environments
+# without playwright — scrapling transitively imports playwright._impl._errors,
+# which isn't installed in lightweight venvs. If the lib is missing, __init__
+# raises a clear RuntimeError rather than crashing at import time.
+try:
+    from scrapling import Fetcher
+except ImportError:
+    Fetcher = None  # type: ignore[assignment]
+
+try:
+    from .job_relevance import JobRelevanceScorer
+except ImportError:
+    JobRelevanceScorer = None  # type: ignore[assignment]
 
 configure_logging()
 
@@ -33,7 +43,8 @@ class BaseScraper(abc.ABC):
         self.scraper_key = scraper_key
         self.log = structlog.get_logger().bind(scraper_key=self.scraper_key)
         self.use_stealth = use_stealth
-        from scrapling import Fetcher  # lazy: see module docstring
+        if Fetcher is None:
+            raise RuntimeError("scrapling is not installed; install server/requirements.txt")
         self.fetcher = Fetcher(stealth=self.use_stealth, auto_match=False if not use_stealth else True)
         self.run_id: Optional[int] = None
         self.errors: List[str] = []
@@ -53,7 +64,8 @@ class BaseScraper(abc.ABC):
 
         # Optional relevance filtering
         if enable_relevance_filter and api_key and user_criteria:
-            from .job_relevance import JobRelevanceScorer
+            if JobRelevanceScorer is None:
+                raise RuntimeError("job_relevance module unavailable")
             self.relevance_scorer = JobRelevanceScorer(
                 api_key=api_key,
                 base_url=base_url,

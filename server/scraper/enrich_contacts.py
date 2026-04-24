@@ -90,7 +90,13 @@ def _url_is_safe(url: str) -> Tuple[bool, str]:
     if host in _BLOCKED_HOSTS:
         return False, f"host on blocklist: {host}"
 
-    # Resolve and check every address. Any private/link-local/loopback address → reject.
+    # Resolve and check every address. Any non-public address → reject.
+    # NOTE: this check is vulnerable to a TOCTOU / DNS-rebinding window — an
+    # attacker with a low-TTL authoritative DNS can return a public IP here
+    # and a private IP when processor.enrich_url() re-resolves. Full defence
+    # requires pinning the resolved IP and passing it explicitly to the
+    # fetcher (see OPEN_ISSUES.md S-01). The checks below still catch the
+    # common cases: static private ranges, localhost, and metadata endpoints.
     try:
         infos = socket.getaddrinfo(host, None)
     except socket.gaierror as exc:
@@ -102,7 +108,14 @@ def _url_is_safe(url: str) -> Tuple[bool, str]:
             ip = ipaddress.ip_address(ip_str)
         except ValueError:
             continue
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved:
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified  # 0.0.0.0 / :: — also should never be fetched
+        ):
             return False, f"host resolves to non-public ip: {ip_str}"
 
     return True, ""

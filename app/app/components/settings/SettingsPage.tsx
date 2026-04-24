@@ -533,7 +533,7 @@ export default function SettingsPage({ onBack }: { onBack: () => void }) {
                         placeholder="3"
                     />
                     <div style={{ fontSize: 12, color: 'var(--color-on-surface-variant)', marginTop: -8 }}>
-                        Jobs older than this will be moved to archive after state transition to "submitted" or "rejected"
+                        Jobs older than this will be moved to archive after state transition to &quot;submitted&quot; or &quot;rejected&quot;
                     </div>
                 </Section>
 

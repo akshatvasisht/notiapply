@@ -173,12 +173,12 @@ export const MOCK_CONTACTS: Contact[] = [
         drafted_subject: null,
         send_at: null, sent_at: daysAgo(14), bounce_type: null, bounce_reason: null, unsubscribed_at: null,
         enrichment: {
+            schema_version: 1,
             summary: 'Engineering leader with a focus on payments infra scaling.',
             topics: ['Payments', 'Engineering management'],
             tech_stack: ['Go', 'Postgres'],
             recent_themes: ['Org scaling', 'Oncall culture'],
-            fetched_at: daysAgo(5),
-        } as unknown as Contact['enrichment'],
+        },
         enrichment_status: 'completed', enriched_at: daysAgo(5),
     },
     {

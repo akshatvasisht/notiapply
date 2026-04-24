@@ -1,6 +1,6 @@
 'use client';
 
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import type { Job } from '@/lib/types';
 import { getCardBorderColor, SOURCE_LABELS, SOURCE_COLORS } from '@/lib/types';
 import { timeAgo, formatSalary } from '@/lib/utils';
@@ -22,7 +22,8 @@ function JobCard({ job, selected = false, onClick }: JobCardProps) {
     };
     const sourceLabel = SOURCE_LABELS[job.source] ?? job.source;
     const salary = formatSalary(job.salary_min, job.salary_max);
-    const ageDays = Math.floor((Date.now() - new Date(job.discovered_at).getTime()) / 86400000);
+    const [nowAtMount] = useState(() => Date.now());
+    const ageDays = Math.floor((nowAtMount - new Date(job.discovered_at).getTime()) / 86400000);
     const showAgeBadge = job.is_live !== false && ageDays > 30;
 
     return (
